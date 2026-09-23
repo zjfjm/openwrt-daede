@@ -54,6 +54,9 @@ const CSS = [
 	'.dd-up-btn:hover{background:rgba(128,128,128,.12)}',
 	'.dd-up-btn:disabled{opacity:.45;cursor:not-allowed}',
 	'.dd-up-btn-primary{border-color:#4aa065;color:#4aa065}',
+	'.dd-up-check{display:flex;align-items:center;gap:10px;margin-bottom:12px}',
+	'.dd-up-check .dd-up-hint{font-size:11.5px;opacity:.6}',
+	'.dd-up-src{font-size:11.5px;opacity:.55;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
 	'.dd-backup-buttons{display:flex;align-items:center;gap:8px}',
 	'.dd-backup-reset{border-color:rgba(217,109,109,.55);color:#d96d6d}',
 	'@media(max-width:640px){.dd-backup-row{grid-template-columns:24px minmax(0,1fr)}.dd-backup-row .dd-up-meta{grid-column:2;white-space:normal}.dd-backup-row>span:nth-child(4){display:none}.dd-backup-buttons{grid-column:2;flex-wrap:wrap}}',
@@ -129,6 +132,19 @@ function probePkg(pkg) {
 	});
 }
 
+// Ask the configured GitHub release feed (daede.config.update_repo) whether a
+// newer build exists than the one installed. Returns { latest, asset } where
+// asset is the download URL of the matching package file (empty when the local
+// build is already newest, or the feed could not be reached).
+function probeRelease(pkg) {
+	return fs.exec('/usr/share/luci-app-daede/check-update.sh', [pkg]).then(function(res) {
+		const out = (res.stdout || '').trim().split('\t');
+		return { latest: out[0] || '', asset: out[1] || '' };
+	}).catch(function() {
+		return { latest: '', asset: '' };
+	});
+}
+
 // YYYYMMDD-HHMM stamp for backup filenames
 function stamp() {
 	const d = new Date(), p = n => (n < 10 ? '0' : '') + n;
@@ -176,6 +192,10 @@ return view.extend({
 		// run a backgrounded script and stream its log into the log pane until it
 		// logs a final ✓/✗ status line; then refresh the badges. Inline, no popup.
 		const runJob = function(script, arg, btn, logPath) {
+			return runJobArgs(script, [arg], btn, logPath);
+		};
+
+		const runJobArgs = function(script, args, btn, logPath) {
 			const orig = btn.textContent;
 			btn.disabled = true;
 			btn.textContent = '...';
@@ -188,7 +208,7 @@ return view.extend({
 					return new Promise(function(r) { setTimeout(r, 2000); }).then(poll);
 				});
 			};
-			return fs.exec('/usr/share/luci-app-daede/' + script, [arg]).then(function(res) {
+			return fs.exec('/usr/share/luci-app-daede/' + script, args).then(function(res) {
 				if (res.code === 0) return poll();
 			}).catch(function() {}).finally(function() {
 				btn.disabled = false;
@@ -205,6 +225,29 @@ return view.extend({
 		const upgradePkg = function(pkg, btn) {
 			return runJob('update-pkg.sh', pkg, btn, '/tmp/luci-app-daede.pkg-' + pkg + '.log');
 		};
+
+		// Install from a GitHub release asset (forks without an apk/opkg feed).
+		const upgradeAsset = function(pkg, url, btn) {
+			return runJobArgs('upgrade-asset.sh', [pkg, url], btn, '/tmp/luci-app-daede.asset-' + pkg + '.log');
+		};
+
+		// Manually trigger the GitHub release probe and re-render the rows so a
+		// newly published build shows up without waiting for the next poll.
+		const checkBtn = E('button', { 'class': 'dd-up-btn dd-up-btn-primary', 'type': 'button' }, _('Check Updates'));
+		const checkSrc = E('span', { 'class': 'dd-up-src' }, '');
+		const doCheck = function() {
+			checkBtn.disabled = true;
+			checkBtn.textContent = '...';
+			return Promise.all(corePkgs.concat(['luci-app-daede']).map(function(pkg) {
+				return probeRelease(pkg);
+			})).then(function() {
+				return refresh();
+			}).catch(function() {}).finally(function() {
+				checkBtn.disabled = false;
+				checkBtn.textContent = _('Check Updates');
+			});
+		};
+		checkBtn.addEventListener('click', doCheck);
 
 		// Configuration operations share a backend lock and one UI busy state.
 		const backupScript = '/usr/share/luci-app-daede/config-backup.sh';
@@ -343,6 +386,15 @@ return view.extend({
 			});
 			probes.push(probePkg('luci-app-daede'));
 
+			// GitHub release probe for every package row. check-update.sh is
+			// cheap (one API call per package) and respects the configured
+			// update_repo, so a fork's builds show up here automatically.
+			const releasePkgs = corePkgs.concat(['luci-app-daede']);
+			const releaseOffset = probes.length;
+			releasePkgs.forEach(function(pkg) {
+				probes.push(probeRelease(pkg));
+			});
+
 			if (ctx.backend.useNetns)
 				probes.push(probeFile(HEALTH_PATHS.netns));
 
@@ -354,7 +406,15 @@ return view.extend({
 					coreInfo[pkg] = r[pkgOffset + i];
 				});
 				const luci = r[pkgOffset + corePkgs.length];
-				const ns = r[pkgOffset + corePkgs.length + 1];
+				const releaseInfo = {};
+				releasePkgs.forEach(function(pkg, i) {
+					releaseInfo[pkg] = r[releaseOffset + i];
+				});
+				const ns = r[releaseOffset + releasePkgs.length];
+
+				// show which repo the release probe consulted
+				const repo = uci.get('daede', 'config', 'update_repo') || 'kenzok8/openwrt-daede';
+				checkSrc.textContent = _('release feed') + ': ' + repo;
 
 				// data rows
 				while (dataBody.firstChild) dataBody.removeChild(dataBody.firstChild);
@@ -376,46 +436,55 @@ return view.extend({
 					));
 				});
 
-				// pkg rows
-				while (pkgBody.firstChild) pkgBody.removeChild(pkgBody.firstChild);
-				corePkgs.map(function(pkg) {
-					const label = _('%s binary').format(pkg) + (ctx.name === pkg ? ' · ' + _('active') : '');
-					return { k: pkg, name: label, r: coreInfo[pkg] };
-				}).concat([
-					{ k: 'luci-app-daede', name: 'luci-app-daede', r: luci }
-				]).forEach(function(entry) {
-					const btn = E('button', { 'class': 'dd-up-btn dd-up-btn-primary' }, _('Upgrade'));
+			// pkg rows
+			while (pkgBody.firstChild) pkgBody.removeChild(pkgBody.firstChild);
+			corePkgs.map(function(pkg) {
+				const label = _('%s binary').format(pkg) + (ctx.name === pkg ? ' · ' + _('active') : '');
+				return { k: pkg, name: label, r: coreInfo[pkg], rel: releaseInfo[pkg] };
+			}).concat([
+				{ k: 'luci-app-daede', name: 'luci-app-daede', r: luci, rel: releaseInfo['luci-app-daede'] }
+			]).forEach(function(entry) {
+				const rel = entry.rel || { latest: '', asset: '' };
+				// Prefer the package feed (R2) when it offers a strictly newer
+				// build; otherwise fall back to a release asset from the
+				// configured GitHub repo (so forks can distribute upgrades).
+				const cmp = (entry.r.installed && entry.r.latest)
+					? cmpVer(entry.r.latest, entry.r.installed) : null;
+				const feedNewer = cmp !== null && cmp > 0;
+				const releaseNewer = !!(rel.latest && rel.asset && (!entry.r.installed || cmpVer(rel.latest, entry.r.installed) > 0));
+
+				let btn, meta;
+				if (!entry.r.installed && !rel.latest) {
+					meta = _('not installed via package manager');
+					btn = E('button', { 'class': 'dd-up-btn', 'type': 'button', 'disabled': true }, _('Unavailable'));
+				} else if (feedNewer) {
+					meta = _('installed') + ': ' + entry.r.installed + ' → ' + _('latest') + ': ' + entry.r.latest;
+					btn = E('button', { 'class': 'dd-up-btn dd-up-btn-primary', 'type': 'button' }, _('Upgrade'));
 					btn.addEventListener('click', function() { upgradePkg(entry.k, btn); });
-					// Only treat it as upgradable when the feed version is STRICTLY
-					// higher than what's installed. A lower/equal feed version (e.g.
-					// a stale compile-jell build) must never be offered as an upgrade.
-					const cmp = (entry.r.installed && entry.r.latest)
-						? cmpVer(entry.r.latest, entry.r.installed) : null;
-					const updatable = cmp !== null && cmp > 0;
-					let meta;
-					if (!entry.r.installed) {
-						meta = _('not installed via package manager');
-						btn.disabled = true;
-						btn.textContent = _('Unavailable');
-					} else if (!entry.r.latest) {
-						// latest unknown (registry unreachable) - nothing to upgrade to
-						meta = _('installed') + ': ' + entry.r.installed + ' · ' + _('latest version unknown');
-						btn.disabled = true;
-					} else if (updatable) {
-						meta = _('installed') + ': ' + entry.r.installed + ' → ' + _('latest') + ': ' + entry.r.latest;
-					} else {
-						// installed >= feed: already up to date (feed may even be older)
-						meta = _('installed') + ': ' + entry.r.installed + ' · ' + _('up to date');
-						btn.disabled = true;
-					}
-					pkgBody.appendChild(mkRow(
-						updatable ? '↑' : (entry.r.installed ? '✓' : '✗'),
-						updatable ? 'dd-up-new' : (entry.r.installed ? 'dd-up-ok' : 'dd-up-err'),
-						entry.name,
-						meta,
-						btn
-					));
-				});
+				} else if (releaseNewer) {
+					meta = _('installed') + ': ' + (entry.r.installed || _('unknown')) + ' → ' + _('release') + ': ' + rel.latest + ' (' + _('from GitHub release') + ')';
+					btn = E('button', { 'class': 'dd-up-btn dd-up-btn-primary', 'type': 'button' }, _('Upgrade'));
+					btn.addEventListener('click', function() { upgradeAsset(entry.k, rel.asset, btn); });
+				} else if (!entry.r.installed && rel.latest) {
+					// Not managed by apk/opkg, but a release asset exists.
+					meta = _('installed') + ': ' + _('unknown') + ' · ' + _('release') + ': ' + rel.latest;
+					btn = E('button', { 'class': 'dd-up-btn dd-up-btn-primary', 'type': 'button' }, _('Install'));
+					btn.addEventListener('click', function() { upgradeAsset(entry.k, rel.asset, btn); });
+				} else if (!entry.r.latest && !rel.latest) {
+					meta = _('installed') + ': ' + entry.r.installed + ' · ' + _('latest version unknown');
+					btn = E('button', { 'class': 'dd-up-btn', 'type': 'button', 'disabled': true }, _('Upgrade'));
+				} else {
+					meta = _('installed') + ': ' + entry.r.installed + ' · ' + _('up to date');
+					btn = E('button', { 'class': 'dd-up-btn', 'type': 'button', 'disabled': true }, _('Upgrade'));
+				}
+				pkgBody.appendChild(mkRow(
+					(feedNewer || releaseNewer) ? '↑' : (entry.r.installed ? '✓' : '✗'),
+					(feedNewer || releaseNewer) ? 'dd-up-new' : (entry.r.installed ? 'dd-up-ok' : 'dd-up-err'),
+					entry.name,
+					meta,
+					btn
+				));
+			});
 
 				// health rows
 				while (healthBody.firstChild) healthBody.removeChild(healthBody.firstChild);
@@ -467,6 +536,57 @@ return view.extend({
 
 		poll.add(refresh);
 		refresh();
+
+		// === Release feed source (which GitHub repo to check for updates) ===
+		const feedSettings = (function() {
+			const repo0 = uci.get('daede', 'config', 'update_repo') || 'kenzok8/openwrt-daede';
+			const proxy0 = uci.get('daede', 'config', 'github_proxy') || '';
+
+			const repoInput = E('input', { 'type': 'text', 'placeholder': 'user/repo' });
+			repoInput.value = repo0;
+			const proxyInput = E('input', { 'type': 'text', 'placeholder': 'https://ghfast.top/' });
+			proxyInput.value = proxy0;
+
+			const saveBtn = E('button', { 'class': 'dd-up-btn dd-up-btn-primary' }, _('Save'));
+			saveBtn.addEventListener('click', function() {
+				uci.set('daede', 'config', 'update_repo', repoInput.value.trim());
+				uci.set('daede', 'config', 'github_proxy', proxyInput.value.trim());
+				const orig = saveBtn.textContent;
+				saveBtn.disabled = true; saveBtn.textContent = '...';
+				uci.save().then(function() {
+					return uci.changes();
+				}).then(function(changes) {
+					if (changes && Object.keys(changes).length)
+						return uci.apply();
+				}).then(function() {
+					logPane.textContent = _('Release feed saved.');
+					logPane.classList.add('show');
+					ui.changes.init();
+					return doCheck();
+				}).catch(function(e) {
+					logPane.textContent = _('Save failed') + ': ' + (e && e.message ? e.message : e);
+					logPane.classList.add('show');
+				}).finally(function() {
+					saveBtn.disabled = false; saveBtn.textContent = orig;
+				});
+			});
+
+			const adv = E('div', { 'class': 'dd-adv dd-closed' }, [
+				E('div', { 'class': 'dd-adv-bar' }, [
+					E('span', {}, _('Release Feed')),
+					E('span', { 'class': 'dd-adv-chevron' }, '›')
+				]),
+				E('div', { 'class': 'dd-adv-body' }, [
+					E('div', { 'class': 'dd-geo-row' }, [ E('label', {}, _('Repository')), repoInput ]),
+					E('div', { 'class': 'dd-geo-row' }, [ E('label', {}, _('GitHub Proxy')), proxyInput ]),
+					E('div', { 'class': 'dd-geo-actions' }, [ saveBtn ])
+				])
+			]);
+			adv.firstChild.addEventListener('click', function() {
+				adv.classList.toggle('dd-closed');
+			});
+			return adv;
+		})();
 
 		// === Geo data source (preset / custom URL + auto-update) ===
 		const geoSettings = (function() {
@@ -569,7 +689,12 @@ return view.extend({
 			]),
 			E('div', { 'class': 'dd-card' }, [
 				E('h4', { 'class': 'dd-card-title' }, _('Package Updates')),
-				pkgBody
+				E('div', { 'class': 'dd-up-check' }, [
+					checkBtn,
+					checkSrc
+				]),
+				pkgBody,
+				feedSettings
 			]),
 			E('div', { 'class': 'dd-card' }, [
 				E('h4', { 'class': 'dd-card-title' }, _('Config Backup')),

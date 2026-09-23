@@ -1,4 +1,4 @@
-msgid ""
+﻿msgid ""
 msgstr "Content-Type: text/plain; charset=UTF-8"
 
 msgid "Service Status"
@@ -897,3 +897,28 @@ msgstr ""
 
 msgid "Debug and trace show per-connection routing details, but increase CPU usage and log volume. Enable them only while troubleshooting."
 msgstr ""
+
+msgid "Check Updates"
+msgstr ""
+
+msgid "release feed"
+msgstr ""
+
+msgid "release"
+msgstr ""
+
+msgid "from GitHub release"
+msgstr ""
+
+msgid "Release Feed"
+msgstr ""
+
+msgid "Repository"
+msgstr ""
+
+msgid "GitHub Proxy"
+msgstr ""
+
+msgid "Release feed saved."
+msgstr ""
+

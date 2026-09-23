@@ -1,4 +1,4 @@
-msgid ""
+﻿msgid ""
 msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Project-Id-Version: PACKAGE VERSION\n"
@@ -1176,3 +1176,27 @@ msgstr "确认配置操作"
 
 msgid "Continue"
 msgstr "继续"
+
+msgid "Check Updates"
+msgstr "检测升级"
+
+msgid "release feed"
+msgstr "更新源"
+
+msgid "release"
+msgstr "发布版本"
+
+msgid "from GitHub release"
+msgstr "来自 GitHub 发布"
+
+msgid "Release Feed"
+msgstr "更新源"
+
+msgid "Repository"
+msgstr "仓库"
+
+msgid "GitHub Proxy"
+msgstr "GitHub 代理"
+
+msgid "Release feed saved."
+msgstr "更新源已保存。"

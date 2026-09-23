@@ -74,6 +74,8 @@ define Package/$(PKG_NAME)/install
 	$(INSTALL_BIN) ./root/usr/share/luci-app-daede/pkg-info.sh $(1)/usr/share/luci-app-daede/pkg-info.sh
 	$(INSTALL_BIN) ./root/usr/share/luci-app-daede/update-geo.sh $(1)/usr/share/luci-app-daede/update-geo.sh
 	$(INSTALL_BIN) ./root/usr/share/luci-app-daede/update-pkg.sh $(1)/usr/share/luci-app-daede/update-pkg.sh
+	$(INSTALL_BIN) ./root/usr/share/luci-app-daede/check-update.sh $(1)/usr/share/luci-app-daede/check-update.sh
+	$(INSTALL_BIN) ./root/usr/share/luci-app-daede/upgrade-asset.sh $(1)/usr/share/luci-app-daede/upgrade-asset.sh
 	$(INSTALL_BIN) ./root/usr/share/luci-app-daede/gen-dae-config.sh $(1)/usr/share/luci-app-daede/gen-dae-config.sh
 	$(INSTALL_BIN) ./root/usr/share/luci-app-daede/proxy-check.sh $(1)/usr/share/luci-app-daede/proxy-check.sh
 	$(INSTALL_BIN) ./root/usr/share/luci-app-daede/fetch-clash-yaml.sh $(1)/usr/share/luci-app-daede/fetch-clash-yaml.sh
