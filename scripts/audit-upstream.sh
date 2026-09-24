@@ -86,7 +86,7 @@ for package in dae daed; do
     source_hash=$(make_value "$makefile" PKG_HASH)
     [[ "$source" =~ ^${package}-src-${version}-[0-9a-f]{12}\.tar\.gz$ ]] || \
         fail "$package Makefile has an invalid content-addressed PKG_SOURCE"
-    [[ "$source_url" =~ ^https://github\.com/kenzok8/openwrt-daede/releases/download/${package}-src/?$ ]] || \
+    [[ "$source_url" =~ ^https://github\.com/(kenzok8|zjfjm)/openwrt-daede/releases/download/${package}-src/?$ ]] || \
         fail "$package Makefile has an unexpected PKG_SOURCE_URL"
     [[ "$source_hash" =~ ^[0-9a-f]{64}$ ]] || fail "$package Makefile has an invalid PKG_HASH"
     source_id=${source##*-}
