@@ -98,13 +98,13 @@
 ### 一键安装
 
 ```bash
-wget -O - https://raw.githubusercontent.com/kenzok8/openwrt-daede/refs/heads/main/scripts/install.sh | ash
+wget -O - https://raw.githubusercontent.com/zjfjm/openwrt-daede/refs/heads/main/scripts/install.sh | ash
 ```
 
 大陆网络加速：
 
 ```bash
-wget --no-check-certificate -O - https://ghfast.top/https://raw.githubusercontent.com/kenzok8/openwrt-daede/refs/heads/main/scripts/install.sh | ash
+wget --no-check-certificate -O - https://ghfast.top/https://raw.githubusercontent.com/zjfjm/openwrt-daede/refs/heads/main/scripts/install.sh | ash
 ```
 
 ### Release 手动安装
@@ -127,7 +127,7 @@ wget -qO- https://down.dllkids.xyz/openwrt-feed/openwrt-feed-setup.sh | sh
 ### 卸载
 
 ```bash
-wget -O - https://raw.githubusercontent.com/kenzok8/openwrt-daede/refs/heads/main/scripts/uninstall.sh | ash
+wget -O - https://raw.githubusercontent.com/zjfjm/openwrt-daede/refs/heads/main/scripts/uninstall.sh | ash
 ```
 
 ## 使用

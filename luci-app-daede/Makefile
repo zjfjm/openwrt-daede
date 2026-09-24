@@ -5,9 +5,9 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-daede
-PKG_VERSION:=1.15
-PKG_RELEASE:=3
-PKG_MAINTAINER:=kenzok8
+PKG_VERSION:=1.16
+PKG_RELEASE:=1
+PKG_MAINTAINER:=zjfjm
 PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)
 
 include $(INCLUDE_DIR)/package.mk
@@ -35,7 +35,7 @@ define Package/$(PKG_NAME)
 	TITLE:=LuCI app for daede dashboard
 	DEPENDS:=+luci-base +PACKAGE_$(PKG_NAME)_dae:dae +PACKAGE_$(PKG_NAME)_daed:daed
 	PKGARCH:=all
-	MAINTAINER:=kenzok8
+	MAINTAINER:=zjfjm
 endef
 
 define Package/$(PKG_NAME)/description

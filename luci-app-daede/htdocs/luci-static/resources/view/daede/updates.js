@@ -413,7 +413,7 @@ return view.extend({
 				const ns = r[releaseOffset + releasePkgs.length];
 
 				// show which repo the release probe consulted
-				const repo = uci.get('daede', 'config', 'update_repo') || 'kenzok8/openwrt-daede';
+				const repo = uci.get('daede', 'config', 'update_repo') || 'zjfjm/openwrt-daede';
 				checkSrc.textContent = _('release feed') + ': ' + repo;
 
 				// data rows
@@ -539,7 +539,7 @@ return view.extend({
 
 		// === Release feed source (which GitHub repo to check for updates) ===
 		const feedSettings = (function() {
-			const repo0 = uci.get('daede', 'config', 'update_repo') || 'kenzok8/openwrt-daede';
+			const repo0 = uci.get('daede', 'config', 'update_repo') || 'zjfjm/openwrt-daede';
 			const proxy0 = uci.get('daede', 'config', 'github_proxy') || '';
 
 			const repoInput = E('input', { 'type': 'text', 'placeholder': 'user/repo' });

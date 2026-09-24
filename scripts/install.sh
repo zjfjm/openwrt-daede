@@ -3,7 +3,7 @@
 set -eu
 
 FEED_BASE_URL="https://down.dllkids.xyz/openwrt-feed/daed"
-GITHUB_API_URL="https://api.github.com/repos/kenzok8/openwrt-daede/releases/latest"
+GITHUB_API_URL="https://api.github.com/repos/zjfjm/openwrt-daede/releases/latest"
 GITHUB_PROXY_PREFIX="${GITHUB_PROXY_PREFIX:-https://ghfast.top/}"
 TMP_DIR="/tmp/daede-install"
 
