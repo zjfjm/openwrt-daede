@@ -209,7 +209,7 @@ resolve_from_manifest() {
   return 1
 }
 
-# GitHub release fallback (best effort, no sha256 available there).
+# GitHub latest release of this fork (primary source; no sha256 available there).
 resolve_from_github() {
   arch="$1"
   ext="$2"
@@ -298,26 +298,29 @@ EXT="ipk"
 
 SDK="$(detect_sdk || true)"
 
-# Try the exact arch first, then the generic fallback (e.g. cortex-a76 -> generic).
+# Prefer this fork's GitHub release so new features land first; fall back to
+# the R2 aggregated feed when GitHub is unreachable. Exact arch first, then
+# the generic fallback (e.g. cortex-a76 -> generic).
 RESOLVED_ARCH=""
 RESOLVED_SDK=""
-for sdk_try in $(package_sdks "$SDK"); do
-  for a in "$ARCH" $(fallback_arch "$ARCH" || true); do
-    if resolve_from_manifest "$sdk_try" "$a"; then
-      [ "$sdk_try" = "$SDK" ] || echo "Device reports SDK ${SDK:-?}; using ${sdk_try} ${EXT} feed for ${PM}."
-      echo "Using R2 feed manifest: ${sdk_try}/${a}"
-      RESOLVED_ARCH="$a"
-      RESOLVED_SDK="$sdk_try"
-      break 2
-    fi
-  done
+for a in "$ARCH" $(fallback_arch "$ARCH" || true); do
+  if resolve_from_github "$a" "$EXT"; then
+    echo "Using GitHub latest release: ${a}"
+    RESOLVED_ARCH="$a"
+    break
+  fi
 done
 if [ -z "$RESOLVED_ARCH" ]; then
-  for a in "$ARCH" $(fallback_arch "$ARCH" || true); do
-    if resolve_from_github "$a" "$EXT"; then
-      echo "Using GitHub latest release: ${a}"
-      RESOLVED_ARCH="$a"; break
-    fi
+  for sdk_try in $(package_sdks "$SDK"); do
+    for a in "$ARCH" $(fallback_arch "$ARCH" || true); do
+      if resolve_from_manifest "$sdk_try" "$a"; then
+        [ "$sdk_try" = "$SDK" ] || echo "Device reports SDK ${SDK:-?}; using ${sdk_try} ${EXT} feed for ${PM}."
+        echo "GitHub unavailable; using R2 feed manifest: ${sdk_try}/${a}"
+        RESOLVED_ARCH="$a"
+        RESOLVED_SDK="$sdk_try"
+        break 2
+      fi
+    done
   done
 fi
 [ -n "$RESOLVED_ARCH" ] || { echo "Cannot resolve daede packages for arch: $ARCH"; exit 1; }
@@ -346,8 +349,23 @@ for pkg in $(wanted_pkgs); do
   FILES="$FILES $TMP_DIR/${pkg}.${EXT}"
 done
 
-GEO_SDK="${RESOLVED_SDK:-$SDK}"
-GEO_URLS="$(resolve_geodata "$GEO_SDK" "$RESOLVED_ARCH" || true)"
+# Geodata always comes from the aggregated feed. The manifest path already
+# knows the right SDK; the GitHub path probes the device's SDK candidates in
+# order (opkg devices on a newer release may still ship the last IPK feed).
+GEO_SDK="${RESOLVED_SDK:-}"
+GEO_URLS=""
+if [ -n "$GEO_SDK" ]; then
+  GEO_URLS="$(resolve_geodata "$GEO_SDK" "$RESOLVED_ARCH" || true)"
+else
+  for sdk_try in $(package_sdks "$SDK") "$SDK"; do
+    [ -n "$sdk_try" ] || continue
+    GEO_URLS="$(resolve_geodata "$sdk_try" "$RESOLVED_ARCH" || true)"
+    if [ -n "$GEO_URLS" ]; then
+      GEO_SDK="$sdk_try"
+      break
+    fi
+  done
+fi
 if [ -n "$GEO_URLS" ]; then
   for gurl in $GEO_URLS; do
     gout="$TMP_DIR/${gurl##*/}"
