@@ -100,6 +100,60 @@ fi
 		exit 3
 	fi
 
+	# Feed install failed — forks publish packages like usque as GitHub
+	# release assets only (no configured feed carries them), so fall back to
+	# the same asset path the Updates view uses: probe check-update.sh for
+	# the newest matching asset, download it, install from the local file.
+	if [ "$rc" != 0 ]; then
+		echo "--- feed install failed, falling back to GitHub release asset ---"
+		asset_url=$(sh /usr/share/luci-app-daede/check-update.sh "$PKG" 2>/dev/null | cut -f2)
+		if [ -n "$asset_url" ]; then
+			GH_PROXY="$(uci -q get daede.config.github_proxy)"
+			dl_url="$asset_url"
+			case "$dl_url" in
+				https://github.com/*)
+					[ -n "$GH_PROXY" ] && dl_url="${GH_PROXY}${dl_url}"
+					;;
+			esac
+			if command -v apk >/dev/null 2>&1; then
+				ext="apk"
+			else
+				ext="ipk"
+			fi
+			tmp_dir="/tmp/daede-pkg.$$"
+			rm -rf "$tmp_dir"
+			mkdir -p "$tmp_dir"
+			file="$tmp_dir/${PKG}.${ext}"
+			echo "downloading $dl_url ..."
+			if command -v curl >/dev/null 2>&1; then
+				curl -fL --max-time 300 "$dl_url" -o "$file" 2>&1
+			elif command -v uclient-fetch >/dev/null 2>&1; then
+				uclient-fetch -O "$file" --timeout=300 "$dl_url" 2>&1
+			else
+				wget -qO "$file" --timeout=300 "$dl_url" 2>&1
+			fi
+			rc=$?
+			if [ "$rc" = 0 ] && [ -s "$file" ]; then
+				if command -v apk >/dev/null 2>&1; then
+					echo "--- apk add --allow-untrusted $file ---"
+					apk add --allow-untrusted "$file" 2>&1
+					rc=$?
+				else
+					echo "--- opkg install $file ---"
+					opkg install "$file" 2>&1
+					rc=$?
+				fi
+			else
+				[ "$rc" = 0 ] && rc=1
+				echo "result: release asset download failed"
+			fi
+			rm -rf "$tmp_dir"
+		else
+			echo "result: no release asset found for $PKG"
+			rc=1
+		fi
+	fi
+
 	if [ "$rc" = 0 ]; then echo "$(date '+%F %T') ✓ 完成"; else echo "$(date '+%F %T') ✗ 失败 (rc=$rc)"; fi
 
 	# luci-app-daede upgrade replaces ACL JSON — reload rpcd so changes apply.

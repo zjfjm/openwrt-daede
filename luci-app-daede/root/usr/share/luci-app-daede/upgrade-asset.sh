@@ -11,9 +11,9 @@ PKG="$1"
 URL="$2"
 
 case "$PKG" in
-	dae|daed|luci-app-daede) ;;
+	dae|daed|luci-app-daede|usque) ;;
 	*)
-		echo "usage: $0 <dae|daed|luci-app-daede> <asset_url>" >&2
+		echo "usage: $0 <dae|daed|luci-app-daede|usque> <asset_url>" >&2
 		exit 64
 		;;
 esac

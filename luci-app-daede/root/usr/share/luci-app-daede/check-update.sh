@@ -12,7 +12,7 @@
 
 PKG="$1"
 case "$PKG" in
-	dae|daed|luci-app-daede) ;;
+	dae|daed|luci-app-daede|usque) ;;
 	*) printf '\t\n'; exit 64 ;;
 esac
 
