@@ -20,6 +20,8 @@
 				"/tmp/luci-app-daede.pkg-dae.log": [ "read" ],
 				"/tmp/luci-app-daede.pkg-daed.log": [ "read" ],
 				"/tmp/luci-app-daede.pkg-luci-app-daede.log": [ "read" ],
+				"/tmp/luci-app-daede.pkg-usque.log": [ "read" ],
+				"/tmp/luci-app-daede.usque-register.log": [ "read" ],
 				"/tmp/luci-app-daede.backup.log": [ "read" ],
 				"/bin/pidof dae": [ "exec" ],
 				"/bin/pidof daed": [ "exec" ],
@@ -36,12 +38,14 @@
 				"/tmp/luci-app-daede.asset-daed.log": [ "read" ],
 				"/tmp/luci-app-daede.asset-luci-app-daede.log": [ "read" ],
 				"/usr/share/luci-app-daede/refresh-index.sh": [ "exec" ],
-				"/usr/share/luci-app-daede/proxy-check.sh": [ "exec" ]
+				"/usr/share/luci-app-daede/proxy-check.sh": [ "exec" ],
+				"/usr/share/luci-app-daede/usque.sh status": [ "exec" ],
+				"/usr/share/luci-app-daede/usque.sh probe": [ "exec" ]
 			},
 			"ubus": {
 				"service": [ "list" ]
 			},
-			"uci": [ "dae", "daed", "daede" ]
+			"uci": [ "dae", "daed", "daede", "usque" ]
 		},
 		"write": {
 			"file": {
@@ -49,6 +53,7 @@
 				"/tmp/dae-validate.dae": [ "write" ],
 				"/tmp/daede-import.b64": [ "write" ],
 				"/tmp/daede-sub.txt": [ "write" ],
+				"/tmp/daede-usque-save.json": [ "write" ],
 				"/etc/daed/.daede-sub-stage-*": [ "write" ],
 				"/etc/daed/daede-sub-*": [ "write" ],
 				"/usr/share/luci-app-daede/config-backup.sh import": [ "exec" ],
@@ -71,21 +76,34 @@
 				"/etc/init.d/daed restart": [ "exec" ],
 				"/etc/init.d/daed enable": [ "exec" ],
 				"/etc/init.d/daed disable": [ "exec" ],
+				"/etc/init.d/usque start": [ "exec" ],
+				"/etc/init.d/usque stop": [ "exec" ],
+				"/etc/init.d/usque restart": [ "exec" ],
+				"/etc/init.d/usque enable": [ "exec" ],
+				"/etc/init.d/usque disable": [ "exec" ],
 				"/sbin/uci set dae.config.enabled=*": [ "exec" ],
 				"/sbin/uci set daed.config.enabled=*": [ "exec" ],
+				"/sbin/uci set usque.config.enabled=*": [ "exec" ],
 				"/sbin/uci set daede.config=daede": [ "exec" ],
 				"/sbin/uci set daede.config.active_backend=*": [ "exec" ],
 				"/sbin/uci commit dae": [ "exec" ],
 				"/sbin/uci commit daed": [ "exec" ],
+				"/sbin/uci commit usque": [ "exec" ],
 				"/sbin/uci commit daede": [ "exec" ],
 				"/sbin/ip netns del daens": [ "exec" ],
 				"/usr/share/luci-app-daede/update-geo.sh geoip": [ "exec" ],
 				"/usr/share/luci-app-daede/update-geo.sh geosite": [ "exec" ],
 				"/usr/share/luci-app-daede/geo-cron.sh enable": [ "exec" ],
 				"/usr/share/luci-app-daede/geo-cron.sh disable": [ "exec" ],
+				"/usr/share/luci-app-daede/usque.sh save": [ "exec" ],
+				"/usr/share/luci-app-daede/usque.sh clear": [ "exec" ],
+				"/usr/share/luci-app-daede/usque.sh register": [ "exec" ],
+				"/usr/share/luci-app-daede/usque.sh watchdog-cron enable": [ "exec" ],
+				"/usr/share/luci-app-daede/usque.sh watchdog-cron disable": [ "exec" ],
 			"/usr/share/luci-app-daede/update-pkg.sh dae": [ "exec" ],
 			"/usr/share/luci-app-daede/update-pkg.sh daed": [ "exec" ],
 			"/usr/share/luci-app-daede/update-pkg.sh luci-app-daede": [ "exec" ],
+			"/usr/share/luci-app-daede/update-pkg.sh usque": [ "exec" ],
 			"/usr/share/luci-app-daede/upgrade-asset.sh dae *": [ "exec" ],
 			"/usr/share/luci-app-daede/upgrade-asset.sh daed *": [ "exec" ],
 			"/usr/share/luci-app-daede/upgrade-asset.sh luci-app-daede *": [ "exec" ],
@@ -100,7 +118,7 @@
 				"/usr/share/luci-app-daede/config-backup.sh import /tmp/daede-import.*.b64": [ "exec" ],
 				"/tmp/daede-import.*.b64": [ "write" ]
 			},
-			"uci": [ "dae", "daed", "daede" ]
+			"uci": [ "dae", "daed", "daede", "usque" ]
 		}
 	}
 }

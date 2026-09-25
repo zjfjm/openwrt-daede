@@ -1200,3 +1200,158 @@ msgstr "GitHub 代理"
 
 msgid "Release feed saved."
 msgstr "更新源已保存。"
+
+# ---- masque.js ----
+
+msgid "Restart failed: %s"
+msgstr "重启失败：%s"
+
+msgid "Test Tunnel"
+msgstr "测试隧道"
+
+msgid "Probe needs curl or nc"
+msgstr "探测需要 curl 或 nc"
+
+msgid "Tunnel OK (WARP on) · %d ms"
+msgstr "隧道正常（WARP 已开启）· %d ms"
+
+msgid "Tunnel reachable but WARP is off · %d ms"
+msgstr "隧道可达但 WARP 未开启 · %d ms"
+
+msgid "Tunnel unreachable (HTTP %s)"
+msgstr "隧道不可达（HTTP %s）"
+
+msgid "Bind Address"
+msgstr "监听地址"
+
+msgid "SOCKS5 listen address. Use 127.0.0.1 unless dae/daed run in a network namespace."
+msgstr "SOCKS5 监听地址。除非 dae/daed 运行在网络命名空间中，否则请使用 127.0.0.1。"
+
+msgid "SOCKS5 Port"
+msgstr "SOCKS5 端口"
+
+msgid "Watchdog"
+msgstr "看门狗"
+
+msgid "Restart the tunnel when it stops responding (checked every 5 minutes)."
+msgstr "隧道无响应时自动重启（每 5 分钟检查一次）。"
+
+msgid "MASQUE Settings"
+msgstr "MASQUE 设置"
+
+msgid "Settings saved"
+msgstr "设置已保存"
+
+msgid "Configuration loaded"
+msgstr "配置已加载"
+
+msgid "No configuration yet — register or upload one"
+msgstr "尚无配置 —— 请注册或上传一份"
+
+msgid "Upload"
+msgstr "上传"
+
+msgid "Register"
+msgstr "注册"
+
+msgid "Remove"
+msgstr "移除"
+
+msgid "Config exceeds the 64 KiB limit."
+msgstr "配置超过 64 KiB 限制。"
+
+msgid "Reading config…"
+msgstr "正在读取配置…"
+
+msgid "Unable to read the file."
+msgstr "无法读取该文件。"
+
+msgid "Not a valid WARP config: private_key / endpoint_pub_key missing."
+msgstr "不是有效的 WARP 配置：缺少 private_key / endpoint_pub_key。"
+
+msgid "Saving config…"
+msgstr "正在保存配置…"
+
+msgid "Config saved"
+msgstr "配置已保存"
+
+msgid "Register a new WARP account? The current config is backed up first and restored if registration fails."
+msgstr "注册新的 WARP 账户？系统会先备份当前配置，注册失败时自动恢复。"
+
+msgid "Registering… (can take up to a minute)"
+msgstr "正在注册…（最长可能需要一分钟）"
+
+msgid "Registered — WARP account ready"
+msgstr "注册完成 —— WARP 账户已就绪"
+
+msgid "Registration failed"
+msgstr "注册失败"
+
+msgid "Registration timed out. Check the system log."
+msgstr "注册超时。请查看系统日志。"
+
+msgid "Registration failed: %s"
+msgstr "注册失败：%s"
+
+msgid "Remove the WARP configuration and stop the tunnel?"
+msgstr "移除 WARP 配置并停止隧道？"
+
+msgid "Configuration removed"
+msgstr "配置已移除"
+
+msgid "Remove failed: %s"
+msgstr "移除失败：%s"
+
+msgid "WARP Configuration"
+msgstr "WARP 配置"
+
+msgid "Upload a WARP config.json exported elsewhere, or register a fresh account directly on the router."
+msgstr "上传在别处导出的 WARP config.json，或直接在路由器上注册新账户。"
+
+msgid "Add node to group \"%s\""
+msgstr "将节点添加到 “%s” 分组"
+
+msgid "Node added to group \"%s\" on dae. Start dae to apply routing."
+msgstr "已将节点添加到 dae 的 “%s” 分组。启动 dae 以应用路由。"
+
+msgid "Node added to group \"%s\" on daed."
+msgstr "已将节点添加到 daed 的 “%s” 分组。"
+
+msgid "Node already existed — linked to group \"%s\"."
+msgstr "节点已存在 —— 已关联到 “%s” 分组。"
+
+msgid "Adding node…"
+msgstr "正在添加节点…"
+
+msgid "Node Import"
+msgstr "节点导入"
+
+msgid "Install dae or daed first, then import the tunnel as a SOCKS5 node."
+msgstr "请先安装 dae 或 daed，然后将隧道作为 SOCKS5 节点导入。"
+
+msgid "Adds the tunnel as node \"%s\" to group \"%s\" on %s. Set that group as a route policy yourself."
+msgstr "将隧道作为节点 “%s” 添加到 %s 的 “%s” 分组。请自行将该分组设置为路由策略。"
+
+msgid "Install"
+msgstr "安装"
+
+msgid "Installing usque…"
+msgstr "正在安装 usque…"
+
+msgid "usque installed. Reloading…"
+msgstr "usque 已安装。正在重新加载…"
+
+msgid "Install failed"
+msgstr "安装失败"
+
+msgid "Install timed out. Check the package log."
+msgstr "安装超时。请查看软件包日志。"
+
+msgid "Install failed: %s"
+msgstr "安装失败：%s"
+
+msgid "usque is not installed"
+msgstr "usque 未安装"
+
+msgid "The WARP MASQUE tunnel needs the usque package from the package feed."
+msgstr "WARP MASQUE 隧道需要软件源中的 usque 软件包。"

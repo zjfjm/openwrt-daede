@@ -922,3 +922,162 @@ msgstr ""
 msgid "Release feed saved."
 msgstr ""
 
+
+msgid "Restart failed: %s"
+msgstr ""
+
+msgid "Test Tunnel"
+msgstr ""
+
+msgid "Testing…"
+msgstr ""
+
+msgid "Probe needs curl or nc"
+msgstr ""
+
+msgid "Tunnel OK (WARP on) · %d ms"
+msgstr ""
+
+msgid "Tunnel reachable but WARP is off · %d ms"
+msgstr ""
+
+msgid "Tunnel unreachable (HTTP %s)"
+msgstr ""
+
+msgid "Bind Address"
+msgstr ""
+
+msgid "SOCKS5 listen address. Use 127.0.0.1 unless dae/daed run in a network namespace."
+msgstr ""
+
+msgid "SOCKS5 Port"
+msgstr ""
+
+msgid "Watchdog"
+msgstr ""
+
+msgid "Restart the tunnel when it stops responding (checked every 5 minutes)."
+msgstr ""
+
+msgid "MASQUE Settings"
+msgstr ""
+
+msgid "Settings saved"
+msgstr ""
+
+msgid "Please fix the highlighted fields."
+msgstr ""
+
+msgid "Configuration loaded"
+msgstr ""
+
+msgid "No configuration yet — register or upload one"
+msgstr ""
+
+msgid "Upload"
+msgstr ""
+
+msgid "Register"
+msgstr ""
+
+msgid "Remove"
+msgstr ""
+
+msgid "Config exceeds the 64 KiB limit."
+msgstr ""
+
+msgid "Reading config…"
+msgstr ""
+
+msgid "Unable to read the file."
+msgstr ""
+
+msgid "Not a valid WARP config: private_key / endpoint_pub_key missing."
+msgstr ""
+
+msgid "Saving config…"
+msgstr ""
+
+msgid "Config saved"
+msgstr ""
+
+msgid "Register a new WARP account? The current config is backed up first and restored if registration fails."
+msgstr ""
+
+msgid "Registering… (can take up to a minute)"
+msgstr ""
+
+msgid "Registered — WARP account ready"
+msgstr ""
+
+msgid "Registration failed"
+msgstr ""
+
+msgid "Registration timed out. Check the system log."
+msgstr ""
+
+msgid "Registration failed: %s"
+msgstr ""
+
+msgid "Remove the WARP configuration and stop the tunnel?"
+msgstr ""
+
+msgid "Configuration removed"
+msgstr ""
+
+msgid "Remove failed: %s"
+msgstr ""
+
+msgid "WARP Configuration"
+msgstr ""
+
+msgid "Upload a WARP config.json exported elsewhere, or register a fresh account directly on the router."
+msgstr ""
+
+msgid "Add node to group \"%s\""
+msgstr ""
+
+msgid "Node added to group \"%s\" on dae. Start dae to apply routing."
+msgstr ""
+
+msgid "Node added to group \"%s\" on daed."
+msgstr ""
+
+msgid "Node already existed — linked to group \"%s\"."
+msgstr ""
+
+msgid "Adding node…"
+msgstr ""
+
+msgid "Node Import"
+msgstr ""
+
+msgid "Install dae or daed first, then import the tunnel as a SOCKS5 node."
+msgstr ""
+
+msgid "Adds the tunnel as node \"%s\" to group \"%s\" on %s. Set that group as a route policy yourself."
+msgstr ""
+
+msgid "Install"
+msgstr ""
+
+msgid "Installing usque…"
+msgstr ""
+
+msgid "usque installed. Reloading…"
+msgstr ""
+
+msgid "Install failed"
+msgstr ""
+
+msgid "Install timed out. Check the package log."
+msgstr ""
+
+msgid "Install failed: %s"
+msgstr ""
+
+msgid "usque is not installed"
+msgstr ""
+
+msgid "The WARP MASQUE tunnel needs the usque package from the package feed."
+msgstr ""

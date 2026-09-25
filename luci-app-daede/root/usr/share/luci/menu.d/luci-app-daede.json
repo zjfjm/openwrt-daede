@@ -25,6 +25,14 @@
 			"path": "daede/converter"
 		}
 	},
+	"admin/services/daede/masque": {
+		"title": "MASQUE (WARP)",
+		"order": 25,
+		"action": {
+			"type": "view",
+			"path": "daede/masque"
+		}
+	},
 	"admin/services/daede/updates": {
 		"title": "Updates",
 		"order": 30,

@@ -285,6 +285,9 @@ generate() {
 
 		echo "routing {"
 		echo "    pname(NetworkManager) -> direct"
+		# WARP MASQUE tunnel (usque SOCKS5) must bypass the proxy, else the
+		# socks5 node traffic would loop back into itself via wan_interface
+		[ -x /usr/bin/usque ] && echo "    pname(usque) -> must_direct"
 		# multicast / broadcast direct (geoip:private doesn't cover these)
 		echo "    dip(224.0.0.0/3) -> direct"
 		echo "    dip(255.255.255.255/32) -> direct"

@@ -1,14 +1,15 @@
 #!/bin/sh
-# update-pkg.sh <dae|daed|luci-app-daede>
+# update-pkg.sh <dae|daed|luci-app-daede|usque>
 # Refresh package indexes and upgrade the named package via apk (25.12+) or
-# opkg (24.10). Forks the work to background so the LuCI RPC call returns
-# immediately; the result is streamed to /tmp/luci-app-daede.pkg.<name>.log.
+# opkg (24.10); opkg installs it when missing. Forks the work to background
+# so the LuCI RPC call returns immediately; the result is streamed to
+# /tmp/luci-app-daede.pkg.<name>.log.
 
 PKG="$1"
 case "$PKG" in
-	dae|daed|luci-app-daede) ;;
+	dae|daed|luci-app-daede|usque) ;;
 	*)
-		echo "usage: $0 <dae|daed|luci-app-daede>" >&2
+		echo "usage: $0 <dae|daed|luci-app-daede|usque>" >&2
 		exit 64
 		;;
 esac
@@ -84,8 +85,15 @@ fi
 	elif command -v opkg >/dev/null 2>&1; then
 		echo "--- opkg update ---"
 		opkg update 2>&1
-		echo "--- opkg upgrade $PKG ---"
-		opkg upgrade "$PKG" 2>&1
+		# opkg upgrade fails on a package that was never installed (usque) —
+		# install it instead so the MASQUE page's Install button works
+		if opkg status "$PKG" 2>/dev/null | grep -q '^Package:'; then
+			echo "--- opkg upgrade $PKG ---"
+			opkg upgrade "$PKG" 2>&1
+		else
+			echo "--- opkg install $PKG ---"
+			opkg install "$PKG" 2>&1
+		fi
 		rc=$?
 	else
 		echo "no package manager found"
