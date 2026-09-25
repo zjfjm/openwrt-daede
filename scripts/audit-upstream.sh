@@ -29,10 +29,12 @@ fi
 [[ -f "$repo/ci/pins.env" ]] || fail "missing $repo/ci/pins.env"
 [[ -f "$repo/dae/Makefile" ]] || fail "missing $repo/dae/Makefile"
 [[ -f "$repo/daed/Makefile" ]] || fail "missing $repo/daed/Makefile"
+[[ -f "$repo/usque/Makefile" ]] || fail "missing $repo/usque/Makefile"
 
 required_pin_vars=(
     DAE_VERSION DAED_VERSION DAED_COMMIT WING_COMMIT CORE_COMMIT
     CORE_UPSTREAM_COMMIT OUTBOUND_COMMIT QUICGO_BASE_COMMIT QUICGO_PERF_TIP
+    USQUE_VERSION USQUE_COMMIT
 )
 while IFS= read -r pins_line || [[ -n "$pins_line" ]]; do
     [[ -z "$pins_line" || "$pins_line" == \#* ]] && continue
@@ -40,7 +42,7 @@ while IFS= read -r pins_line || [[ -n "$pins_line" ]]; do
     pin_name=${BASH_REMATCH[1]}
     pin_value=${BASH_REMATCH[2]}
     case "$pin_name" in
-        DAE_VERSION|DAED_VERSION|DAED_COMMIT|WING_COMMIT|CORE_COMMIT|CORE_UPSTREAM_COMMIT|OUTBOUND_COMMIT|QUICGO_BASE_COMMIT|QUICGO_PERF_TIP) ;;
+        DAE_VERSION|DAED_VERSION|DAED_COMMIT|WING_COMMIT|CORE_COMMIT|CORE_UPSTREAM_COMMIT|OUTBOUND_COMMIT|QUICGO_BASE_COMMIT|QUICGO_PERF_TIP|USQUE_VERSION|USQUE_COMMIT) ;;
         *) fail "unexpected pin in ci/pins.env: $pin_name" ;;
     esac
     seen_var="seen_$pin_name"
@@ -59,7 +61,7 @@ require_sha() {
 }
 
 for sha_var in DAED_COMMIT WING_COMMIT CORE_COMMIT CORE_UPSTREAM_COMMIT \
-    OUTBOUND_COMMIT QUICGO_BASE_COMMIT QUICGO_PERF_TIP; do
+    OUTBOUND_COMMIT QUICGO_BASE_COMMIT QUICGO_PERF_TIP USQUE_COMMIT; do
     require_sha "$sha_var"
 done
 
@@ -76,7 +78,7 @@ hash_file() {
     fi
 }
 
-for package in dae daed; do
+for package in dae daed usque; do
     makefile="$repo/$package/Makefile"
     version=$(make_value "$makefile" PKG_VERSION)
     pins_version=$(printf '%s' "$package" | tr '[:lower:]' '[:upper:]')_VERSION

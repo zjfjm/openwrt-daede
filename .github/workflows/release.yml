@@ -66,7 +66,7 @@ jobs:
           CONTAINER: immortalwrt/sdk
           ARCH: ${{ matrix.arch }}-openwrt-${{ matrix.sdk }}
           FEEDNAME: daede
-          PACKAGES: dae daed luci-app-daede vmlinux-btf
+          PACKAGES: dae daed luci-app-daede vmlinux-btf usque
           # wall supplies v2ray-geoip / v2ray-geosite (subpackages of v2ray-geodata)
           EXTRA_FEEDS: src-git|wall|https://github.com/kenzok8/wall
           NO_REFRESH_CHECK: true
@@ -82,7 +82,7 @@ jobs:
         run: |
           set -euo pipefail
           output_dir="bin/packages/${{ matrix.arch }}/daede"
-          for package in dae daed luci-app-daede vmlinux-btf; do
+          for package in dae daed luci-app-daede vmlinux-btf usque; do
             found=0
             while IFS= read -r -d '' file; do
               name=${file##*/}
@@ -334,7 +334,7 @@ jobs:
           for sdk in 24.10 25.12; do
             for arch in aarch64_cortex-a53 aarch64_cortex-a72 aarch64_generic arm_cortex-a7_neon-vfpv4 arm_cortex-a9 arm_cortex-a9_neon i386_pentium4 x86_64; do
               dir="artifacts/packages-sdk${sdk}-${arch}/feed"
-              for pkg in dae daed luci-app-daede vmlinux-btf; do
+              for pkg in dae daed luci-app-daede vmlinux-btf usque; do
                 if ls "$dir"/${pkg}_*.ipk >/dev/null 2>&1 || ls "$dir"/${pkg}-*.apk >/dev/null 2>&1; then
                   :
                 else
