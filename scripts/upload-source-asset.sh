@@ -7,30 +7,51 @@ die() {
 	exit 1
 }
 
-[ "$#" -eq 3 ] || die "usage: upload-source-asset.sh <dae-src|daed-src> <tarball> <owner/repo>"
+[ "$#" -eq 3 ] || die "usage: upload-source-asset.sh <dae-src|daed-src|usque-src> <tarball> <owner/repo>"
 release=$1
 tarball_path=$2
 tarball=${tarball_path##*/}
 repo=$3
 
 case "$release" in
-	dae-src|daed-src) ;;
+	dae-src|daed-src|usque-src) ;;
 	*) die "invalid source release: $release" ;;
 esac
 case "$repo" in
 	*/*/*|/*|*/|*[![:print:]]*|*' '*) die "invalid repository: $repo" ;;
 esac
-case "$tarball" in
-	"$release"-????.??.??-????????????.tar.gz) ;;
-	*) die "invalid tarball name: $tarball" ;;
+# dae/daed versions are release dates (2026.09.25); usque versions are
+# semver tags (4.2.1) - validate the version shape per release kind.
+case "$release" in
+	dae-src|daed-src)
+		case "$tarball" in
+			"$release"-????.??.??-????????????.tar.gz) ;;
+			*) die "invalid tarball name: $tarball" ;;
+		esac
+		;;
+	usque-src)
+		case "$tarball" in
+			"$release"-*-????????????.tar.gz) ;;
+			*) die "invalid tarball name: $tarball" ;;
+		esac
+		;;
 esac
 name_rest=${tarball#"$release"-}
-date_part=${name_rest%%-*}
+version_part=${name_rest%%-*}
 hash_part=${name_rest#*-}
 hash_part=${hash_part%.tar.gz}
-case "$date_part" in
-	[0-9][0-9][0-9][0-9].[0-9][0-9].[0-9][0-9]) ;;
-	*) die "invalid tarball date: $tarball" ;;
+case "$release" in
+	dae-src|daed-src)
+		case "$version_part" in
+			[0-9][0-9][0-9][0-9].[0-9][0-9].[0-9][0-9]) ;;
+			*) die "invalid tarball date: $tarball" ;;
+		esac
+		;;
+	usque-src)
+		if ! printf '%s\n' "$version_part" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+			die "invalid tarball version: $tarball"
+		fi
+		;;
 esac
 case "$hash_part" in
 	''|*[!0-9a-f]*) die "invalid tarball digest suffix: $tarball" ;;

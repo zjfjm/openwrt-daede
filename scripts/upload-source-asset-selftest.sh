@@ -17,7 +17,7 @@ log=${MOCK_LOG:?}
 asset_name=${ASSET_NAME:?}
 if [ "${1:-}" = api ]; then
 	[ "$case_name" != api-fail ] || exit 1
-	if [ "$#" -eq 2 ] && [ "$2" = repos/acme/openwrt-daede/releases/tags/dae-src ]; then
+	if [ "$#" -eq 2 ] && { [ "$2" = repos/acme/openwrt-daede/releases/tags/dae-src ] || [ "$2" = repos/acme/openwrt-daede/releases/tags/usque-src ]; }; then
 		endpoint=release
 	elif [ "$#" -eq 4 ] && [ "$2" = --paginate ] && [ "$3" = --slurp ] && \
 		[ "$4" = repos/acme/openwrt-daede/releases/123/assets?per_page=100 ]; then
@@ -45,7 +45,7 @@ if [ "${1:-}" = api ]; then
 fi
 if [ "${1:-}" = release ] && [ "${2:-}" = upload ]; then
 	[ "$#" -eq 6 ] || exit 1
-	[ "$3" = dae-src ] || exit 1
+	case "$3" in dae-src|usque-src) ;; *) exit 1 ;; esac
 	[ "$4" = "${EXPECTED_PATH:?}" ] || exit 1
 	[ "$5" = --repo ] || exit 1
 	[ "$6" = acme/openwrt-daede ] || exit 1
@@ -55,7 +55,7 @@ if [ "${1:-}" = release ] && [ "${2:-}" = upload ]; then
 fi
 if [ "${1:-}" = release ] && [ "${2:-}" = download ]; then
 	[ "$#" -eq 9 ] || exit 1
-	[ "$3" = dae-src ] || exit 1
+	case "$3" in dae-src|usque-src) ;; *) exit 1 ;; esac
 	[ "$4" = --repo ] || exit 1
 	[ "$5" = acme/openwrt-daede ] || exit 1
 	[ "$6" = --pattern ] || exit 1
@@ -139,6 +139,46 @@ log=$tmpdir/invalid-manual.log
 if PATH="$mock_dir:$PATH" MOCK_CASE=new MOCK_LOG="$log" ASSET_NAME="${invalid_manual##*/}" \
 	sh "$script_dir/upload-source-asset.sh" dae-src "$invalid_manual" acme/openwrt-daede; then
 	printf '%s\n' 'selftest: invalid manual name unexpectedly succeeded' >&2
+	exit 1
+fi
+[ ! -s "$log" ]
+
+# usque source assets use a semver version (4.2.1) instead of a release date
+usque_tarball=$tmpdir/usque-src-4.2.1-$digest_prefix.tar.gz
+cp "$tarball_content" "$usque_tarball"
+log=$tmpdir/usque-new.log
+: >"$log"
+PATH="$mock_dir:$PATH" MOCK_CASE=new MOCK_LOG="$log" ASSET_NAME="${usque_tarball##*/}" EXPECTED_TARBALL="${usque_tarball##*/}" EXPECTED_PATH="$usque_tarball" \
+	sh "$script_dir/upload-source-asset.sh" usque-src "$usque_tarball" acme/openwrt-daede
+[ "$(sed -n '1p' "$log")" = upload ]
+
+usque_bad_digest=$tmpdir/usque-src-4.2.1-aaaaaaaaaaaa.tar.gz
+cp "$tarball_content" "$usque_bad_digest"
+log=$tmpdir/usque-bad-digest.log
+: >"$log"
+if PATH="$mock_dir:$PATH" MOCK_CASE=new MOCK_LOG="$log" ASSET_NAME="${usque_bad_digest##*/}" EXPECTED_TARBALL="${usque_bad_digest##*/}" EXPECTED_PATH="$usque_bad_digest" \
+	sh "$script_dir/upload-source-asset.sh" usque-src "$usque_bad_digest" acme/openwrt-daede; then
+	printf '%s\n' 'selftest: usque wrong digest unexpectedly succeeded' >&2
+	exit 1
+fi
+[ ! -s "$log" ]
+
+usque_bad_version=$tmpdir/usque-src-v4.2.1-$digest_prefix.tar.gz
+cp "$tarball_content" "$usque_bad_version"
+log=$tmpdir/usque-bad-version.log
+: >"$log"
+if PATH="$mock_dir:$PATH" MOCK_CASE=new MOCK_LOG="$log" ASSET_NAME="${usque_bad_version##*/}" EXPECTED_TARBALL="${usque_bad_version##*/}" EXPECTED_PATH="$usque_bad_version" \
+	sh "$script_dir/upload-source-asset.sh" usque-src "$usque_bad_version" acme/openwrt-daede; then
+	printf '%s\n' 'selftest: usque date-shaped version unexpectedly succeeded' >&2
+	exit 1
+fi
+[ ! -s "$log" ]
+
+log=$tmpdir/unknown-release.log
+: >"$log"
+if PATH="$mock_dir:$PATH" MOCK_CASE=new MOCK_LOG="$log" ASSET_NAME="${tarball##*/}" \
+	sh "$script_dir/upload-source-asset.sh" other-src "$tarball" acme/openwrt-daede; then
+	printf '%s\n' 'selftest: unknown source release unexpectedly succeeded' >&2
 	exit 1
 fi
 [ ! -s "$log" ]
