@@ -4,12 +4,13 @@ Fixes we carry on top of `OUTBOUND_COMMIT` because upstream has not merged them.
 The assemble workflows apply every `NNNN-*.patch` here with `git apply` right
 after fetching outbound; an empty directory is skipped.
 
-## Current state: two patches
+## Current state: three patches
 
 | patch | what | why it is here |
 |-------|------|----------------|
 | 0001 | SSR obfs reaches its cipher through `BufferedReaderConn` | fixes every SSR handshake; olicesx never merged it into `perf/complete-optimizations` |
 | 0002 | REALITY client sends version bytes `[26,7,28]` instead of `[1,8,10]` | Xray-core 26.7.11+ defaults the server's `minClientVer` to `26.3.27`, so our version bytes are rejected; see below |
+| 0003 | Cloudflare WARP MASQUE L4 outbound (`dialer/masque`) | native `masque://` node support for dae/daed; upstream dae has no MASQUE/WARP protocol at all |
 
 ### 0001 background
 
@@ -54,12 +55,33 @@ requirement:
 The REALITY protocol library is identical between Xray-core 26.3.27 and
 26.7.28, so patched clients remain fully compatible with older servers.
 
+### 0003 background
+
+daed gains native Cloudflare WARP MASQUE nodes through a new dialer package.
+The link format is
+
+```
+masque://<endpoint-host>?cfg=<base64url(config.json)>&port=443&ipv6=0&insecure=0#<name>
+```
+
+where `cfg` carries the WARP registration config.json (`private_key`,
+`endpoint_pub_key`, `endpoint_v4`, `endpoint_v6`, optional id/ipv4/ipv6).
+The dialer keeps one shared HTTP/3 connection per node and opens a plain
+HTTP/3 CONNECT stream per proxied TCP connection (usque's L4 mode); UDP is
+rejected with `UnsupportedTunnelTypeError` for now. Endpoint pinning, the
+`consumer-masque-proxy.cloudflareclient.com` SNI and the per-session client
+certificate mirror usque. The `masque` scheme is registered via
+`dialer.FromLinkRegister`; dae/daed core only needs the one-line blank import
+carried in `dae/patches/011-*` and `daed/patches/0013-*`.
+
+Test with `go test ./dialer/masque/` (link parsing; no network needed).
+
 ## Apply by hand
 
 ```sh
 git checkout -B carry <OUTBOUND_COMMIT>
 git apply ci/patches/outbound/*.patch
-go test ./protocol/shadowsocks_stream/ ./transport/tls/
+go test ./protocol/shadowsocks_stream/ ./transport/tls/ ./dialer/masque/
 ```
 
 ## When upstream absorbs a patch

@@ -1,0 +1,999 @@
+diff --git a/dialer/masque/masque.go b/dialer/masque/masque.go
+new file mode 100644
+index 0000000..f2f2836
+--- /dev/null
++++ b/dialer/masque/masque.go
+@@ -0,0 +1,256 @@
++/*
++ * SPDX-License-Identifier: AGPL-3.0-only
++ * Copyright (c) 2026 daeuniverse Organization <dae@v2raya.org>
++ */
++
++// Package masque implements the Cloudflare WARP MASQUE outbound: one shared
++// HTTP/3 connection to a WARP entry point, with every proxied TCP connection
++// carried on its own HTTP/3 CONNECT stream (usque's L4 mode).
++package masque
++
++import (
++	"context"
++	"encoding/base64"
++	"encoding/json"
++	"fmt"
++	"net"
++	"net/url"
++	"strconv"
++	"strings"
++	"sync"
++
++	"github.com/daeuniverse/outbound/dialer"
++	"github.com/daeuniverse/outbound/netproxy"
++)
++
++func init() {
++	dialer.FromLinkRegister("masque", NewMasque)
++}
++
++const (
++	// DefaultSNI is the certificate name Cloudflare's consumer MASQUE
++	// endpoints present; L4 mode always connects with this SNI
++	// (usque internal.L4ConnectSNI).
++	DefaultSNI = "consumer-masque-proxy.cloudflareclient.com"
++
++	defaultConnectPort = 443
++)
++
++// Config is the subset of a WARP registration config.json required to open
++// an MASQUE session (usque's config.Config minus account metadata).
++type Config struct {
++	PrivateKey     string `json:"private_key"`      // Base64-encoded ECDSA private key
++	EndpointPubKey string `json:"endpoint_pub_key"` // PEM-encoded ECDSA public key of the endpoint
++	EndpointV4     string `json:"endpoint_v4"`      // IPv4 address of the entry point
++	EndpointV6     string `json:"endpoint_v6"`      // IPv6 address of the entry point
++	ID             string `json:"id,omitempty"`     // Device unique identifier
++	IPv4           string `json:"ipv4,omitempty"`   // Assigned IPv4 address
++	IPv6           string `json:"ipv6,omitempty"`   // Assigned IPv6 address
++}
++
++// Masque is a netproxy.Dialer that carries TCP connections through a
++// Cloudflare WARP MASQUE entry point over HTTP/3 CONNECT streams.
++type Masque struct {
++	name     string
++	link     string
++	endpoint string // host:port of the MASQUE entry point
++	cfg      Config
++	sni      string
++	insecure bool
++
++	mu     sync.Mutex
++	sess   *session
++	closed bool
++}
++
++// NewMasque is the dialer.FromLinkCreator for the "masque" scheme.
++//
++// The link format is:
++//
++//	masque://<endpoint-host>?cfg=<base64url(config.json)>&port=443&ipv6=0&insecure=0&sni=...#<name>
++//
++// Precedence for the entry point: endpoint= query, then the link host, then
++// endpoint_v4/endpoint_v6 from the embedded config (chosen by ipv6=).
++// The full registration config.json travels base64url-encoded in cfg= so the
++// link stays self-contained; keep the raw JSON key order untouched when
++// regenerating it so identical configs produce identical links.
++func NewMasque(option *dialer.ExtraOption, nextDialer netproxy.Dialer, link string) (netproxy.Dialer, *dialer.Property, error) {
++	allowInsecure := option != nil && option.AllowInsecure
++	s, err := ParseMasqueURL(link, allowInsecure)
++	if err != nil {
++		return nil, nil, err
++	}
++	return s, &dialer.Property{
++		Name:     s.name,
++		Address:  s.endpoint,
++		Protocol: "masque",
++		Link:     s.link,
++	}, nil
++}
++
++// ParseMasqueURL parses a masque:// link. allowInsecure comes from the
++// global ExtraOption and disables endpoint public-key pinning for the node.
++func ParseMasqueURL(link string, allowInsecure bool) (*Masque, error) {
++	idx := strings.Index(link, "://")
++	if idx <= 0 || !strings.EqualFold(link[:idx], "masque") {
++		return nil, fmt.Errorf("%w: not a masque link", dialer.InvalidParameterErr)
++	}
++	u, err := url.Parse(link)
++	if err != nil {
++		return nil, fmt.Errorf("%w: %v", dialer.InvalidParameterErr, err)
++	}
++	q := u.Query()
++
++	payload := q.Get("cfg")
++	if payload == "" {
++		return nil, fmt.Errorf("%w: missing cfg parameter", dialer.InvalidParameterErr)
++	}
++	raw, err := decodePayload(payload)
++	if err != nil {
++		return nil, fmt.Errorf("%w: cfg: %v", dialer.InvalidParameterErr, err)
++	}
++	var cfg Config
++	if err := json.Unmarshal(raw, &cfg); err != nil {
++		return nil, fmt.Errorf("%w: cfg: %v", dialer.InvalidParameterErr, err)
++	}
++	if _, _, err := parseKeys(&cfg); err != nil {
++		return nil, err
++	}
++
++	port := defaultConnectPort
++	if portStr := q.Get("port"); portStr != "" {
++		p, err := strconv.ParseUint(portStr, 10, 16)
++		if err != nil || p == 0 {
++			return nil, fmt.Errorf("%w: invalid port %q", dialer.InvalidParameterErr, portStr)
++		}
++		port = int(p)
++	}
++
++	host := q.Get("endpoint")
++	if host == "" {
++		host = u.Host
++	}
++	endpoint, err := selectEndpoint(host, cfg, isTruthy(q.Get("ipv6")), port)
++	if err != nil {
++		return nil, err
++	}
++
++	name := u.Fragment
++	if name == "" {
++		name = "masque"
++	}
++	sni := q.Get("sni")
++	if sni == "" {
++		sni = DefaultSNI
++	}
++
++	return &Masque{
++		name:     name,
++		link:     link,
++		endpoint: endpoint,
++		cfg:      cfg,
++		sni:      sni,
++		insecure: allowInsecure || dialer.AllowInsecureFromQuery(q),
++	}, nil
++}
++
++// selectEndpoint resolves the entry point into a host:port string.
++// An explicit host wins over the embedded config endpoints; a host that
++// already carries a port is used verbatim and port is ignored.
++func selectEndpoint(host string, cfg Config, useIPv6 bool, port int) (string, error) {
++	if host != "" {
++		// A bracketed IPv6 literal without a port ("[::1]") arrives from
++		// url.Host; trim the brackets so JoinHostPort does not double them.
++		if strings.HasPrefix(host, "[") && strings.HasSuffix(host, "]") {
++			host = strings.TrimSuffix(strings.TrimPrefix(host, "["), "]")
++		}
++		if ip := net.ParseIP(host); ip != nil {
++			return net.JoinHostPort(host, strconv.Itoa(port)), nil
++		}
++		if h, _, err := net.SplitHostPort(host); err == nil && h != "" {
++			return host, nil
++		}
++		return net.JoinHostPort(host, strconv.Itoa(port)), nil
++	}
++	if useIPv6 {
++		if cfg.EndpointV6 == "" {
++			return "", fmt.Errorf("%w: ipv6=1 but config has no endpoint_v6", dialer.InvalidParameterErr)
++		}
++		return net.JoinHostPort(cfg.EndpointV6, strconv.Itoa(port)), nil
++	}
++	if cfg.EndpointV4 == "" {
++		return "", fmt.Errorf("%w: config has no endpoint_v4", dialer.InvalidParameterErr)
++	}
++	return net.JoinHostPort(cfg.EndpointV4, strconv.Itoa(port)), nil
++}
++
++// DialContext opens target as a stream on the shared HTTP/3 connection.
++// UDP is not supported by the L4 MASQUE mode.
++func (m *Masque) DialContext(ctx context.Context, network, addr string) (netproxy.Conn, error) {
++	switch network {
++	case "tcp", "tcp4", "tcp6":
++	case "udp", "udp4", "udp6":
++		return nil, netproxy.UnsupportedTunnelTypeError
++	default:
++		return nil, fmt.Errorf("%w: %v", netproxy.UnsupportedTunnelTypeError, network)
++	}
++	sess, err := m.getSession()
++	if err != nil {
++		return nil, err
++	}
++	return sess.DialContext(ctx, addr)
++}
++
++// getSession returns the shared session, establishing it on first use so
++// link import never dials the network.
++func (m *Masque) getSession() (*session, error) {
++	m.mu.Lock()
++	defer m.mu.Unlock()
++	if m.closed {
++		return nil, net.ErrClosed
++	}
++	if m.sess != nil {
++		return m.sess, nil
++	}
++	m.sess = m.newSession()
++	return m.sess, nil
++}
++
++// Close tears down the shared HTTP/3 session.
++func (m *Masque) Close() error {
++	m.mu.Lock()
++	defer m.mu.Unlock()
++	m.closed = true
++	if m.sess != nil {
++		m.sess.close()
++		m.sess = nil
++	}
++	return nil
++}
++
++func decodePayload(s string) ([]byte, error) {
++	var firstErr error
++	for _, enc := range []*base64.Encoding{
++		base64.RawURLEncoding,
++		base64.RawStdEncoding,
++		base64.URLEncoding,
++		base64.StdEncoding,
++	} {
++		b, err := enc.DecodeString(s)
++		if err == nil {
++			return b, nil
++		}
++		if firstErr == nil {
++			firstErr = err
++		}
++	}
++	return nil, firstErr
++}
++
++func isTruthy(v string) bool {
++	if v == "" {
++		return false
++	}
++	b, err := strconv.ParseBool(v)
++	return err == nil && b
++}
+diff --git a/dialer/masque/masque_test.go b/dialer/masque/masque_test.go
+new file mode 100644
+index 0000000..75c8a0a
+--- /dev/null
++++ b/dialer/masque/masque_test.go
+@@ -0,0 +1,200 @@
++/*
++ * SPDX-License-Identifier: AGPL-3.0-only
++ * Copyright (c) 2026 daeuniverse Organization <dae@v2raya.org>
++ */
++
++package masque
++
++import (
++	"context"
++	"crypto/ecdsa"
++	"crypto/elliptic"
++	"crypto/rand"
++	"crypto/x509"
++	"encoding/base64"
++	"encoding/json"
++	"encoding/pem"
++	"errors"
++	"net"
++	"strings"
++	"testing"
++
++	"github.com/daeuniverse/outbound/dialer"
++	"github.com/daeuniverse/outbound/netproxy"
++)
++
++type nopDialer struct{}
++
++func (nopDialer) DialContext(context.Context, string, string) (netproxy.Conn, error) {
++	return nil, errors.New("nop")
++}
++
++func testConfigJSON(t *testing.T) (cfg Config, b64 string) {
++	t.Helper()
++	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
++	if err != nil {
++		t.Fatal(err)
++	}
++	der, err := x509.MarshalECPrivateKey(priv)
++	if err != nil {
++		t.Fatal(err)
++	}
++	pubDER, err := x509.MarshalPKIXPublicKey(&priv.PublicKey)
++	if err != nil {
++		t.Fatal(err)
++	}
++	cfg = Config{
++		PrivateKey:     base64.StdEncoding.EncodeToString(der),
++		EndpointPubKey: string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: pubDER})),
++		EndpointV4:     "162.159.198.2",
++		EndpointV6:     "2606:4700:100::2",
++		ID:             "test-id",
++	}
++	raw, err := json.Marshal(cfg)
++	if err != nil {
++		t.Fatal(err)
++	}
++	return cfg, base64.RawURLEncoding.EncodeToString(raw)
++}
++
++func testLink(t *testing.T, query, fragment string) string {
++	t.Helper()
++	_, b64 := testConfigJSON(t)
++	link := "masque://?cfg=" + b64 + query
++	if fragment != "" {
++		link += "#" + fragment
++	}
++	return link
++}
++
++func TestParseMasqueURLDefaults(t *testing.T) {
++	link := testLink(t, "", "WARP")
++	m, err := ParseMasqueURL(link, false)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if m.name != "WARP" {
++		t.Errorf("name = %q, want WARP", m.name)
++	}
++	if m.endpoint != "162.159.198.2:443" {
++		t.Errorf("endpoint = %q, want 162.159.198.2:443", m.endpoint)
++	}
++	if m.sni != DefaultSNI {
++		t.Errorf("sni = %q, want %q", m.sni, DefaultSNI)
++	}
++	if m.insecure {
++		t.Error("insecure = true, want false")
++	}
++}
++
++func TestParseMasqueURLEndpointPrecedence(t *testing.T) {
++	// endpoint= query wins over the link host.
++	_, b64 := testConfigJSON(t)
++	link := "masque://203.0.113.7?cfg=" + b64 + "&endpoint=198.51.100.9&port=8443"
++	m, err := ParseMasqueURL(link, false)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if m.endpoint != "198.51.100.9:8443" {
++		t.Errorf("endpoint = %q, want 198.51.100.9:8443", m.endpoint)
++	}
++
++	// Host wins over the embedded config endpoint.
++	link = "masque://198.51.100.9?cfg=" + b64 + "&port=2408"
++	m, err = ParseMasqueURL(link, false)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if m.endpoint != "198.51.100.9:2408" {
++		t.Errorf("endpoint = %q, want 198.51.100.9:2408", m.endpoint)
++	}
++
++	// Host already carrying a port is used verbatim.
++	link = "masque://198.51.100.9:2408?cfg=" + b64 + "&port=443"
++	m, err = ParseMasqueURL(link, false)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if m.endpoint != "198.51.100.9:2408" {
++		t.Errorf("endpoint = %q, want 198.51.100.9:2408", m.endpoint)
++	}
++}
++
++func TestParseMasqueURLIPv6Fallback(t *testing.T) {
++	link := testLink(t, "&ipv6=1", "")
++	m, err := ParseMasqueURL(link, false)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if m.endpoint != "[2606:4700:100::2]:443" {
++		t.Errorf("endpoint = %q, want [2606:4700:100::2]:443", m.endpoint)
++	}
++}
++
++func TestParseMasqueURLErrors(t *testing.T) {
++	_, b64 := testConfigJSON(t)
++	cases := []struct {
++		name string
++		link string
++	}{
++		{"scheme", "socks5://127.0.0.1:1080"},
++		{"missing cfg", "masque://1.2.3.4"},
++		{"bad b64", "masque://?cfg=@@@not-base64@@@"},
++		{"bad json", "masque://?cfg=" + base64.RawURLEncoding.EncodeToString([]byte("{"))},
++		{"bad port", "masque://?cfg=" + b64 + "&port=0"},
++		{"bad port nan", "masque://?cfg=" + b64 + "&port=abc"},
++	}
++	for _, tc := range cases {
++		if _, err := ParseMasqueURL(tc.link, false); err == nil {
++			t.Errorf("%s: expected error, got nil", tc.name)
++		}
++	}
++
++	// ipv6=1 without an endpoint_v6 in config.
++	cfg, b64 := testConfigJSON(t)
++	cfg.EndpointV6 = ""
++	raw, _ := json.Marshal(cfg)
++	link := "masque://?cfg=" + base64.RawURLEncoding.EncodeToString(raw) + "&ipv6=1"
++	if _, err := ParseMasqueURL(link, false); err == nil {
++		t.Error("ipv6 without endpoint_v6: expected error, got nil")
++	}
++}
++
++func TestDialContextRejectsUDPWithoutNetwork(t *testing.T) {
++	link := testLink(t, "", "")
++	m, err := ParseMasqueURL(link, false)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if _, err := m.DialContext(context.Background(), "udp", "1.1.1.1:53"); !errors.Is(err, netproxy.UnsupportedTunnelTypeError) {
++		t.Errorf("udp dial error = %v, want UnsupportedTunnelTypeError", err)
++	}
++}
++
++func TestNewMasqueRegistersScheme(t *testing.T) {
++	link := testLink(t, "&port=2408", "MyNode")
++	d, prop, err := dialer.NewNetproxyDialerFromLink(nopDialer{}, &dialer.ExtraOption{}, link)
++	if err != nil {
++		t.Fatal(err)
++	}
++	m, ok := d.(*Masque)
++	if !ok {
++		t.Fatalf("dialer type = %T, want *Masque", d)
++	}
++	defer m.Close()
++	if prop.Protocol != "masque" {
++		t.Errorf("Protocol = %q, want masque", prop.Protocol)
++	}
++	if prop.Name != "MyNode" {
++		t.Errorf("Name = %q, want MyNode", prop.Name)
++	}
++	if prop.Address != "162.159.198.2:2408" {
++		t.Errorf("Address = %q, want 162.159.198.2:2408", prop.Address)
++	}
++	if prop.Link != link {
++		t.Errorf("Link = %q, want original link", prop.Link)
++	}
++	if !strings.HasPrefix(prop.Link, "masque://") {
++		t.Errorf("Link = %q, want masque:// prefix", prop.Link)
++	}
++}
+diff --git a/dialer/masque/session.go b/dialer/masque/session.go
+new file mode 100644
+index 0000000..53c86f4
+--- /dev/null
++++ b/dialer/masque/session.go
+@@ -0,0 +1,375 @@
++/*
++ * SPDX-License-Identifier: AGPL-3.0-only
++ * Copyright (c) 2026 daeuniverse Organization <dae@v2raya.org>
++ */
++
++package masque
++
++import (
++	"context"
++	"errors"
++	"fmt"
++	"io"
++	"net"
++	"net/http"
++	"strconv"
++	"sync"
++	"time"
++
++	"github.com/olicesx/quic-go"
++	"github.com/olicesx/quic-go/http3"
++)
++
++const (
++	defaultConnectTimeout    = 15 * time.Second
++	defaultConnectRetryCount = 2
++)
++
++// session multiplexes every proxied TCP connection as one HTTP/3 CONNECT
++// stream over a single shared QUIC connection to the entry point
++// (usque api.L4Proxy).
++type session struct {
++	masque *Masque
++
++	mu     sync.Mutex
++	client *l4Client
++}
++
++type l4Client struct {
++	transport  *quic.Transport
++	udpConn    *net.UDPConn
++	quicConn   quic.Connection
++	clientConn *http3.ClientConn
++}
++
++func (m *Masque) newSession() *session {
++	return &session{masque: m}
++}
++
++// DialContext connects target over an L4 MASQUE HTTP/3 CONNECT stream.
++func (s *session) DialContext(ctx context.Context, target string) (net.Conn, error) {
++	// Cloudflare's L4 CONNECT requires an IP authority; resolve hostname
++	// targets locally (usque runs L4 with resolveLocally=true for the same
++	// reason). dae normally pre-resolves, so this is a fallback.
++	target, err := resolveTarget(ctx, target)
++	if err != nil {
++		return nil, err
++	}
++	var lastErr error
++	for attempt := 0; attempt < defaultConnectRetryCount; attempt++ {
++		dialCtx, cancel := context.WithTimeout(ctx, defaultConnectTimeout)
++		conn, err := s.dial(dialCtx, target)
++		cancel()
++		if err == nil {
++			return conn, nil
++		}
++		lastErr = err
++		if ctx.Err() != nil {
++			return nil, ctx.Err()
++		}
++	}
++	return nil, lastErr
++}
++
++func resolveTarget(ctx context.Context, target string) (string, error) {
++	host, port, err := net.SplitHostPort(target)
++	if err != nil {
++		return "", fmt.Errorf("invalid target %q: %w", target, err)
++	}
++	if net.ParseIP(host) != nil {
++		return target, nil
++	}
++	addrs, err := net.DefaultResolver.LookupIPAddr(ctx, host)
++	if err != nil {
++		return "", fmt.Errorf("resolve %s: %w", host, err)
++	}
++	if len(addrs) == 0 {
++		return "", fmt.Errorf("resolve %s: no addresses", host)
++	}
++	picked := addrs[0].IP
++	for _, a := range addrs {
++		if a.IP.To4() != nil {
++			picked = a.IP
++			break
++		}
++	}
++	return net.JoinHostPort(picked.String(), port), nil
++}
++
++func (s *session) dial(ctx context.Context, target string) (net.Conn, error) {
++	h3Client, err := s.getOrCreateClientConn(ctx)
++	if err != nil {
++		return nil, err
++	}
++
++	stream, err := h3Client.clientConn.OpenRequestStream(ctx)
++	if err != nil {
++		if !shouldReconnectOnOpenStreamError(ctx, err) {
++			return nil, err
++		}
++		// The cached HTTP/3 connection might be stale; reconnect once and retry.
++		s.closeClientConnIfCurrent(h3Client)
++		h3Client, err = s.getOrCreateClientConn(ctx)
++		if err != nil {
++			return nil, err
++		}
++		stream, err = h3Client.clientConn.OpenRequestStream(ctx)
++		if err != nil {
++			if shouldReconnectOnOpenStreamError(ctx, err) {
++				s.closeClientConnIfCurrent(h3Client)
++			}
++			return nil, err
++		}
++	}
++
++	req, err := http.NewRequestWithContext(ctx, http.MethodConnect, "https://"+target, nil)
++	if err != nil {
++		_ = stream.Close()
++		return nil, err
++	}
++	req.Host = target
++	if err := stream.SendRequestHeader(req); err != nil {
++		_ = stream.Close()
++		return nil, err
++	}
++	response, err := stream.ReadResponse()
++	if err != nil {
++		_ = stream.Close()
++		return nil, err
++	}
++	if response.StatusCode < 200 || response.StatusCode > 299 {
++		_ = stream.Close()
++		return nil, fmt.Errorf("CONNECT rejected with status %d", response.StatusCode)
++	}
++	return &l4TCPConn{
++		stream: stream,
++		local:  h3Client.udpConn.LocalAddr(),
++		remote: targetAddr(target),
++	}, nil
++}
++
++// targetAddr renders the CONNECT authority as a native TCP address so
++// dae-side helpers that inspect RemoteAddr see a real IP and port.
++func targetAddr(target string) net.Addr {
++	if host, port, err := net.SplitHostPort(target); err == nil {
++		if ip := net.ParseIP(host); ip != nil {
++			if p, err := strconv.Atoi(port); err == nil {
++				return &net.TCPAddr{IP: ip, Port: p}
++			}
++		}
++	}
++	return l4Addr(target)
++}
++
++func shouldReconnectOnOpenStreamError(ctx context.Context, err error) bool {
++	if err == nil {
++		return false
++	}
++	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
++		return false
++	}
++	if ctx != nil && (errors.Is(ctx.Err(), context.Canceled) || errors.Is(ctx.Err(), context.DeadlineExceeded)) {
++		return false
++	}
++	return true
++}
++
++func (s *session) getOrCreateClientConn(ctx context.Context) (*l4Client, error) {
++	s.mu.Lock()
++	if s.client != nil {
++		client := s.client
++		s.mu.Unlock()
++		return client, nil
++	}
++	s.mu.Unlock()
++
++	endpoint, err := net.ResolveUDPAddr("udp", s.masque.endpoint)
++	if err != nil {
++		return nil, fmt.Errorf("resolve masque endpoint: %w", err)
++	}
++	tlsConfig, err := s.masque.tlsConfig()
++	if err != nil {
++		return nil, err
++	}
++
++	udpConn, err := listenUDPForEndpoint(endpoint)
++	if err != nil {
++		return nil, err
++	}
++	// Without ConnectionIDLength set the backend occasionally throws
++	// PROTOCOL_VIOLATION, which closes the connection.
++	qtr := &quic.Transport{Conn: udpConn, ConnectionIDLength: 20}
++	quicConn, err := qtr.Dial(ctx, endpoint, tlsConfig, l4QUICConfig())
++	if err != nil {
++		_ = qtr.Close()
++		_ = udpConn.Close()
++		return nil, err
++	}
++
++	created := &l4Client{
++		transport:  qtr,
++		udpConn:    udpConn,
++		quicConn:   quicConn,
++		clientConn: (&http3.Transport{}).NewClientConn(quicConn),
++	}
++
++	s.mu.Lock()
++	if s.client != nil {
++		current := s.client
++		s.mu.Unlock()
++		closeL4HTTP3(created)
++		return current, nil
++	}
++	s.client = created
++	s.mu.Unlock()
++
++	return created, nil
++}
++
++func (s *session) closeClientConnIfCurrent(expected *l4Client) {
++	if expected == nil {
++		return
++	}
++
++	s.mu.Lock()
++	if s.client != expected {
++		s.mu.Unlock()
++		return
++	}
++	s.client = nil
++	s.mu.Unlock()
++
++	closeL4HTTP3(expected)
++}
++
++func (s *session) close() {
++	s.mu.Lock()
++	client := s.client
++	s.client = nil
++	s.mu.Unlock()
++	if client != nil {
++		closeL4HTTP3(client)
++	}
++}
++
++// l4QUICConfig mirrors usque's L4 QUIC settings: no datagrams (plain
++// CONNECT streams only), bounded windows, and a 30s keepalive.
++func l4QUICConfig() *quic.Config {
++	return &quic.Config{
++		EnableDatagrams:                false,
++		KeepAlivePeriod:                30 * time.Second,
++		InitialConnectionReceiveWindow: 10_000_000,
++		MaxConnectionReceiveWindow:     10_000_000,
++		InitialStreamReceiveWindow:     1_000_000,
++		MaxStreamReceiveWindow:         1_000_000,
++		MaxIncomingStreams:             100,
++		MaxIncomingUniStreams:          100,
++	}
++}
++
++func listenUDPForEndpoint(endpoint *net.UDPAddr) (*net.UDPConn, error) {
++	if endpoint.IP.To4() == nil {
++		return net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv6zero})
++	}
++	return net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4zero})
++}
++
++func closeL4HTTP3(c *l4Client) {
++	if c.quicConn != nil {
++		_ = c.quicConn.CloseWithError(0, "")
++	}
++	if c.transport != nil {
++		_ = c.transport.Close()
++	}
++	if c.udpConn != nil {
++		_ = c.udpConn.Close()
++	}
++}
++
++type l4TCPConn struct {
++	stream l4Stream
++	local  net.Addr
++	remote net.Addr
++	once   sync.Once
++}
++
++type l4Stream interface {
++	io.ReadWriteCloser
++	CancelRead(quic.StreamErrorCode)
++	SetDeadline(time.Time) error
++	SetReadDeadline(time.Time) error
++	SetWriteDeadline(time.Time) error
++}
++
++func (c *l4TCPConn) Read(b []byte) (int, error) {
++	if c.stream == nil {
++		return 0, net.ErrClosed
++	}
++	return c.stream.Read(b)
++}
++
++func (c *l4TCPConn) Write(b []byte) (int, error) {
++	if c.stream == nil {
++		return 0, net.ErrClosed
++	}
++	return c.stream.Write(b)
++}
++
++func (c *l4TCPConn) CloseWrite() error {
++	if c.stream == nil {
++		return nil
++	}
++	return c.stream.Close()
++}
++
++func (c *l4TCPConn) CloseRead() error {
++	if c.stream == nil {
++		return nil
++	}
++	c.stream.CancelRead(quic.StreamErrorCode(http3.ErrCodeNoError))
++	return nil
++}
++
++func (c *l4TCPConn) Close() error {
++	var err error
++	c.once.Do(func() {
++		err = c.CloseWrite()
++		_ = c.CloseRead()
++	})
++	return err
++}
++
++func (c *l4TCPConn) LocalAddr() net.Addr {
++	if c.local == nil {
++		return l4Addr("l4")
++	}
++	return c.local
++}
++
++func (c *l4TCPConn) RemoteAddr() net.Addr { return c.remote }
++
++func (c *l4TCPConn) SetDeadline(t time.Time) error {
++	if c.stream == nil {
++		return nil
++	}
++	return c.stream.SetDeadline(t)
++}
++
++func (c *l4TCPConn) SetReadDeadline(t time.Time) error {
++	if c.stream == nil {
++		return nil
++	}
++	return c.stream.SetReadDeadline(t)
++}
++
++func (c *l4TCPConn) SetWriteDeadline(t time.Time) error {
++	if c.stream == nil {
++		return nil
++	}
++	return c.stream.SetWriteDeadline(t)
++}
++
++type l4Addr string
++
++func (a l4Addr) Network() string { return "masque-l4-tcp" }
++func (a l4Addr) String() string  { return string(a) }
+diff --git a/dialer/masque/tls.go b/dialer/masque/tls.go
+new file mode 100644
+index 0000000..b48ca22
+--- /dev/null
++++ b/dialer/masque/tls.go
+@@ -0,0 +1,144 @@
++/*
++ * SPDX-License-Identifier: AGPL-3.0-only
++ * Copyright (c) 2026 daeuniverse Organization <dae@v2raya.org>
++ */
++
++package masque
++
++import (
++	"crypto/ecdsa"
++	"crypto/rand"
++	"crypto/tls"
++	"crypto/x509"
++	"encoding/base64"
++	"encoding/pem"
++	"fmt"
++	"math/big"
++	"time"
++
++	"github.com/daeuniverse/outbound/dialer"
++	"github.com/olicesx/quic-go/http3"
++)
++
++// parseKeys decodes the WARP account ECDSA private key (base64 DER) and the
++// entry point public key (PEM PKIX) from the embedded registration config.
++func parseKeys(cfg *Config) (*ecdsa.PrivateKey, *ecdsa.PublicKey, error) {
++	if cfg.PrivateKey == "" {
++		return nil, nil, fmt.Errorf("%w: config has no private_key", dialer.InvalidParameterErr)
++	}
++	privDER, err := decodeOneOf(cfg.PrivateKey)
++	if err != nil {
++		return nil, nil, fmt.Errorf("%w: private_key: %v", dialer.InvalidParameterErr, err)
++	}
++	privKey, err := x509.ParseECPrivateKey(privDER)
++	if err != nil {
++		return nil, nil, fmt.Errorf("%w: private_key: %v", dialer.InvalidParameterErr, err)
++	}
++
++	if cfg.EndpointPubKey == "" {
++		return nil, nil, fmt.Errorf("%w: config has no endpoint_pub_key", dialer.InvalidParameterErr)
++	}
++	block, _ := pem.Decode([]byte(cfg.EndpointPubKey))
++	if block == nil {
++		return nil, nil, fmt.Errorf("%w: endpoint_pub_key is not PEM", dialer.InvalidParameterErr)
++	}
++	parsed, err := x509.ParsePKIXPublicKey(block.Bytes)
++	if err != nil {
++		return nil, nil, fmt.Errorf("%w: endpoint_pub_key: %v", dialer.InvalidParameterErr, err)
++	}
++	peerPub, ok := parsed.(*ecdsa.PublicKey)
++	if !ok {
++		return nil, nil, fmt.Errorf("%w: endpoint_pub_key is not ECDSA", dialer.InvalidParameterErr)
++	}
++	return privKey, peerPub, nil
++}
++
++func decodeOneOf(s string) ([]byte, error) {
++	var firstErr error
++	for _, enc := range []*base64.Encoding{
++		base64.StdEncoding,
++		base64.RawStdEncoding,
++		base64.URLEncoding,
++		base64.RawURLEncoding,
++	} {
++		b, err := enc.DecodeString(s)
++		if err == nil {
++			return b, nil
++		}
++		if firstErr == nil {
++			firstErr = err
++		}
++	}
++	return nil, firstErr
++}
++
++// tlsConfig builds the client TLS configuration for one session. The client
++// certificate is regenerated per session: WARP certificates are minted with a
++// 24h validity, so a reconnect after that window must not reuse an expired
++// one (usque api.PrepareTlsConfig + internal.GenerateCert).
++func (m *Masque) tlsConfig() (*tls.Config, error) {
++	privKey, peerPub, err := parseKeys(&m.cfg)
++	if err != nil {
++		return nil, err
++	}
++	cert, err := generateCert(privKey)
++	if err != nil {
++		return nil, err
++	}
++	cfg := &tls.Config{
++		Certificates: []tls.Certificate{
++			{
++				Certificate: cert,
++				PrivateKey:  privKey,
++			},
++		},
++		ServerName: m.sni,
++		NextProtos: []string{http3.NextProtoH3},
++		// WARN: SNI is not the endpoint's own name; trust is established by
++		// pinning the endpoint public key from config.json instead.
++		InsecureSkipVerify: true,
++	}
++	if !m.insecure {
++		cfg.VerifyPeerCertificate = newPinnedVerifier(peerPub)
++	}
++	return cfg, nil
++}
++
++// newPinnedVerifier pins the peer leaf certificate to the entry point
++// public key carried in config.json (usque api.PrepareTlsConfig).
++func newPinnedVerifier(peerPub *ecdsa.PublicKey) func(rawCerts [][]byte, _ [][]*x509.Certificate) error {
++	return func(rawCerts [][]byte, _ [][]*x509.Certificate) error {
++		if len(rawCerts) == 0 {
++			return nil
++		}
++		cert, err := x509.ParseCertificate(rawCerts[0])
++		if err != nil {
++			return err
++		}
++		pub, ok := cert.PublicKey.(*ecdsa.PublicKey)
++		if !ok {
++			// Only ECDSA endpoints are supported today.
++			return x509.ErrUnsupportedAlgorithm
++		}
++		if !pub.Equal(peerPub) {
++			// Reason 10 is x509.CertificateInvalidReason NoValidChains,
++			// not defined before go1.22 in the stdlib alias we cannot use.
++			return x509.CertificateInvalidError{Cert: cert, Reason: 10, Detail: "remote endpoint has a different public key than endpoint_pub_key in cfg"}
++		}
++		return nil
++	}
++}
++
++// generateCert mints the short-lived client certificate WARP expects
++// (usque internal.GenerateCert).
++func generateCert(privKey *ecdsa.PrivateKey) ([][]byte, error) {
++	cert, err := x509.CreateCertificate(rand.Reader, &x509.Certificate{
++		SerialNumber: big.NewInt(0),
++		NotBefore:    time.Now(),
++		NotAfter:     time.Now().Add(24 * time.Hour),
++	}, &x509.Certificate{}, &privKey.PublicKey, privKey)
++	if err != nil {
++		return nil, err
++	}
++	return [][]byte{cert}, nil
++}

@@ -22,14 +22,15 @@ fix onto this lineage.
 
 ## Self-owned patches that must survive every sync
 
-The repository currently carries 18 patch files:
+The repository currently carries 22 patch files:
 
-- `dae/patches`: 1 regular dae patch.
+- `dae/patches`: 2 regular dae patches (DNS TTL + the masque blank import).
 - `dae/patches_arm`: 2 ARM32 compatibility patches.
-- `daed/patches`: 11 daed reliability and update patches.
+- `daed/patches`: 13 daed reliability, masque-import and update patches.
 - `daed/patches_arm`: 2 ARM32 compatibility patches for the embedded dae core.
-- `ci/patches/outbound`: 2 patches (SSR buffered-reader fix + temporary REALITY
-  client-version bump for Xray-core 26.7.x, see `ci/patches/outbound/README.md`).
+- `ci/patches/outbound`: 3 patches (SSR buffered-reader fix, temporary REALITY
+  client-version bump for Xray-core 26.7.x — see `ci/patches/outbound/README.md`
+  — and the Cloudflare WARP MASQUE `dialer/masque` package).
 - `ci/patches/quic-go`: currently empty; retained for future backports.
 
 On 2026-08-28 every patch then present was checked against the pinned upstream
