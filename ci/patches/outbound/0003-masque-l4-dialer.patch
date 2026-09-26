@@ -495,10 +495,10 @@ index 0000000..e4722e4
 +}
 diff --git a/dialer/masque/session.go b/dialer/masque/session.go
 new file mode 100644
-index 0000000..53c86f4
+index 0000000..9e54d5e
 --- /dev/null
 +++ b/dialer/masque/session.go
-@@ -0,0 +1,375 @@
+@@ -0,0 +1,403 @@
 +/*
 + * SPDX-License-Identifier: AGPL-3.0-only
 + * Copyright (c) 2026 daeuniverse Organization <dae@v2raya.org>
@@ -514,6 +514,7 @@ index 0000000..53c86f4
 +	"net"
 +	"net/http"
 +	"strconv"
++	"strings"
 +	"sync"
 +	"time"
 +
@@ -640,13 +641,40 @@ index 0000000..53c86f4
 +	}
 +	if response.StatusCode < 200 || response.StatusCode > 299 {
 +		_ = stream.Close()
-+		return nil, fmt.Errorf("CONNECT rejected with status %d", response.StatusCode)
++		return nil, fmt.Errorf("CONNECT rejected with status %d: %s",
++			response.StatusCode, describeRejectedResponse(response))
 +	}
 +	return &l4TCPConn{
 +		stream: stream,
 +		local:  h3Client.udpConn.LocalAddr(),
 +		remote: targetAddr(target),
 +	}, nil
++}
++
++// describeRejectedResponse renders response headers and body for a rejected
++// CONNECT so the edge's refusal reason is surfaced in probe errors.
++func describeRejectedResponse(response *http.Response) string {
++	var sb strings.Builder
++	for name, values := range response.Header {
++		for _, v := range values {
++			if sb.Len() > 512 {
++				break
++			}
++			sb.WriteString(name)
++			sb.WriteString(": ")
++			sb.WriteString(v)
++			sb.WriteString("; ")
++		}
++	}
++	if response.Body != nil {
++		body, _ := io.ReadAll(io.LimitReader(response.Body, 400))
++		_ = response.Body.Close()
++		if len(body) > 0 {
++			sb.WriteString("body=")
++			sb.WriteString(strings.TrimSpace(string(body)))
++		}
++	}
++	return sb.String()
 +}
 +
 +// targetAddr renders the CONNECT authority as a native TCP address so
