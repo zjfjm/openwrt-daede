@@ -220,6 +220,52 @@ function convertAnytls(node) {
 		(params.toString() ? '?' + params.toString() : '') + '#' + encodeURIComponent(node.name || 'Node');
 }
 
+function normalizeMasquePubKey(value) {
+	let raw = String(value).trim();
+	if (raw.indexOf('-----BEGIN') >= 0) {
+		if (raw.indexOf('\\n') >= 0)
+			raw = raw.replace(/\\n/g, '\n');
+		return raw;
+	}
+	const b64 = raw.replace(/\s+/g, '');
+	return '-----BEGIN PUBLIC KEY-----\n' + (b64.match(/.{1,64}/g) || []).join('\n') + '\n-----END PUBLIC KEY-----';
+}
+
+function convertMasque(node) {
+	const priv = node['private-key'] || node.private_key;
+	const pub = node['public-key'] || node.public_key;
+	if (!priv)
+		throw new Error('Missing required field: private-key');
+	if (!pub)
+		throw new Error('Missing required field: public-key');
+	requireFields(node, [ 'server', 'port' ]);
+
+	const cfg = {
+		private_key: String(priv).trim(),
+		endpoint_pub_key: normalizeMasquePubKey(pub)
+	};
+	if (node.ip)
+		cfg.ipv4 = String(node.ip).split('/')[0];
+	if (node.ipv6)
+		cfg.ipv6 = String(node.ipv6).split('/')[0];
+
+	const server = String(node.server).trim();
+	if (/^\d{1,3}(\.\d{1,3}){3}$/.test(server))
+		cfg.endpoint_v4 = server;
+	else if (server.indexOf(':') >= 0)
+		cfg.endpoint_v6 = server.replace(/^\[/, '').replace(/\]$/, '');
+
+	const params = new URLSearchParams();
+	params.set('cfg', base64Url(JSON.stringify(cfg)));
+	params.set('port', String(node.port));
+	setIf(params, 'sni', node.sni || node.servername);
+	if (node['skip-cert-verify'])
+		params.set('allowInsecure', '1');
+
+	const host = server.indexOf(':') >= 0 && server[0] !== '[' ? '[' + server + ']' : server;
+	return 'masque://' + host + '?' + params.toString() + '#' + encodeURIComponent(node.name || 'Node');
+}
+
 function isMetadataProxy(node) {
 	const name = String(node && node.name || '').trim();
 	if (!name)
@@ -243,7 +289,8 @@ function convertProxy(node) {
 		tuic: convertTuic,
 		hysteria2: convertHysteria2,
 		hy2: convertHysteria2,
-		anytls: convertAnytls
+		anytls: convertAnytls,
+		masque: convertMasque
 	};
 
 	try {
