@@ -25,6 +25,10 @@ UPDATE_REPO="$(uci -q get daede.config.update_repo)"
 # Optional prefix for github.com (e.g. https://ghfast.top/) when the device
 # cannot reach GitHub directly. Applied to api.github.com too.
 GH_PROXY="$(uci -q get daede.config.github_proxy)"
+# This fork's own proxy when nothing is configured yet — the GitHub API is
+# unreachable from many networks, and an empty probe must not look like
+# "already up to date". Set daede.config.github_proxy to override.
+[ -n "$GH_PROXY" ] || GH_PROXY="https://gh.845945.xyz/"
 
 fetch_text() {
 	if command -v curl >/dev/null 2>&1; then
@@ -70,8 +74,10 @@ esac
 
 # Ask the GitHub API for the latest release. Use the Releases API (not the
 # Tags API) because we need the asset list to download packages from.
+# A fetch that yields nothing (network/API failure) exits 1 so the caller can
+# say "check failed" instead of silently claiming the build is up to date.
 api="$(fetch_text "$(with_proxy "https://api.github.com/repos/${UPDATE_REPO}/releases/latest")")"
-[ -n "$api" ] || { printf '\t\n'; exit 0; }
+[ -n "$api" ] || { printf '\t\n'; exit 1; }
 
 # Find the matching asset. luci-app-daede is arch-independent ("_all" ipk;
 # its noarch apk is still published once per SDK/arch); dae/daed need the
@@ -91,6 +97,14 @@ fi
 #   ipk: dae_2026.09.23-r1_aarch64_cortex-a53.ipk
 #        luci-app-daede_1.16-r1_all.ipk
 asset_urls="$(printf '%s' "$api" | grep -oE '"browser_download_url"[[:space:]]*:[[:space:]]*"[^"]*"' | sed 's/.*: *"//;s/"$//')"
+
+# No assets at all means the response was an error payload (rate limit, proxy
+# error page) rather than a release we can compare against — report failure,
+# never "up to date".
+if [ -z "$asset_urls" ]; then
+	printf '\t\n'
+	exit 1
+fi
 
 # The arch suffix of whichever asset we accept (the device's own arch, or the
 # aarch64_generic fallback). Remembered so the version can be parsed back out

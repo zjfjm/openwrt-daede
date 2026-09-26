@@ -96,6 +96,11 @@ function makeStatus() {
 	return node;
 }
 
+/* persistent top-of-page banner — the inline flash can be missed or expire */
+function notify(text, kind) {
+	ui.addNotification(null, E('p', {}, text), kind === 'error' ? 'error' : 'notice');
+}
+
 /* poll a background log until it logs a final checkmark (true) / cross (false);
    null = timeout */
 function waitLog(path, onTick) {
@@ -132,11 +137,17 @@ function graphQL(endpoint, query, variables, token) {
 	if (token)
 		headers.Authorization = 'Bearer ' + token;
 
-	return fetch(endpoint, {
-		method: 'POST',
-		headers: headers,
-		body: JSON.stringify({ query: query, variables: variables || {} })
-	}).then(function(response) {
+	return Promise.race([
+		fetch(endpoint, {
+			method: 'POST',
+			headers: headers,
+			body: JSON.stringify({ query: query, variables: variables || {} })
+		}),
+		// without a deadline a dropped connection hangs the caller forever
+		new Promise(function(resolve, reject) {
+			setTimeout(function() { reject(new Error(_('daed request timed out'))); }, 30000);
+		})
+	]).then(function(response) {
 		if (!response.ok)
 			throw new Error(_('daed returned HTTP %s').format(response.status));
 		return response.json();
@@ -246,13 +257,17 @@ function renderStatusCard(initial) {
 		if (st.running === '1' && st.pid)
 			meta.push(E('span', { 'class': 'dd-meta' }, [ E('span', { 'class': 'dd-meta-label' }, 'PID'), st.pid ]));
 		meta.push(E('span', { 'class': 'dd-meta' }, [ E('span', { 'class': 'dd-meta-label' }, _('Listen')), (st.bind || '?') + ':' + (st.port || '?') ]));
+		// Without /etc/usque/config.json the init script refuses to start, so
+		// the toggle would just fail — point at the WARP Configuration card.
+		if (st.installed === '1' && st.config !== '1')
+			meta.push(E('span', { 'class': 'dd-meta dd-err' }, _('No configuration yet — register or upload one')));
 
 		const swErr = E('span', { 'class': 'dd-meta dd-err', 'style': lastError ? '' : 'display:none' }, lastError);
 		const sw = E('button', {
 			'class': 'dd-switch' + (st.running === '1' ? ' is-on' : ''),
 			'type': 'button',
 			'aria-label': _('Toggle service'),
-			'disabled': st.installed === '1' ? null : 'disabled'
+			'disabled': (st.installed === '1' && st.config === '1') ? null : 'disabled'
 		}, [
 			E('span', { 'class': 'dd-switch-knob' })
 		]);
@@ -515,9 +530,12 @@ function renderConfigCard(initial) {
 				.then(function() {
 					configState.textContent = _('Configuration loaded');
 					status.flash(_('Config saved'), 'ok');
+					notify(_('Config saved'), 'ok');
 				})
 				.catch(function(e) {
-					status.flash(_('Save failed: %s').format(e.message || e), 'err', 9000);
+					const msg = _('Save failed: %s').format(e.message || e);
+					status.flash(msg, 'err', 9000);
+					notify(msg, 'error');
 				})
 				.finally(function() { uploadBtn.disabled = false; });
 		};
@@ -540,6 +558,7 @@ function renderConfigCard(initial) {
 				if (done === true) {
 					configState.textContent = _('Configuration loaded');
 					status.flash(_('Registered \u2014 WARP account ready'), 'ok');
+					notify(_('Registered \u2014 WARP account ready'), 'ok');
 				} else if (done === false) {
 					throw new Error(lastLine(logText) || _('Registration failed'));
 				} else {
@@ -547,7 +566,9 @@ function renderConfigCard(initial) {
 				}
 			});
 		}).catch(function(e) {
-			status.flash(_('Registration failed: %s').format(e.message || e), 'err', 12000);
+			const msg = _('Registration failed: %s').format(e.message || e);
+			status.flash(msg, 'err', 12000);
+			notify(msg, 'error');
 		}).finally(function() { registerBtn.disabled = false; });
 	});
 
@@ -560,9 +581,42 @@ function renderConfigCard(initial) {
 				configState.textContent = _('No configuration yet \u2014 register or upload one');
 				status.flash(_('Configuration removed'), 'ok');
 			})
-			.catch(function(e) { status.flash(_('Remove failed: %s').format(e.message || e), 'err', 9000); })
+			.catch(function(e) {
+				const msg = _('Remove failed: %s').format(e.message || e);
+				status.flash(msg, 'err', 9000);
+				notify(msg, 'error');
+			})
 			.finally(function() { removeBtn.disabled = false; });
 	});
+
+	/* optional usque-custom-pro worker relay: Register then goes through
+	   /api/warp/register + /api/warp/enroll instead of api.cloudflareclient.com */
+	const relayRow = (function() {
+		const input = E('input', { 'type': 'text', 'placeholder': 'https://your-project.workers.dev' });
+		input.value = uci.get('usque', 'config', 'register_relay') || '';
+		const saveBtn = E('button', { 'class': 'dd-sub-apply', 'type': 'button' }, _('Save'));
+		saveBtn.addEventListener('click', function() {
+			uci.set('usque', 'config', 'register_relay', input.value.trim());
+			const orig = saveBtn.textContent;
+			saveBtn.disabled = true;
+			saveBtn.textContent = '...';
+			applyUciChanges()
+				.then(function() { status.flash(_('Relay saved.'), 'ok'); })
+				.catch(function(e) {
+					status.flash(_('Save failed') + ': ' + (e && e.message ? e.message : e), 'err', 9000);
+				})
+				.finally(function() {
+					saveBtn.disabled = false;
+					saveBtn.textContent = orig;
+				});
+		});
+		return E('div', { 'class': 'dd-sub-row', 'style': 'margin-top:8px' }, [
+			E('label', { 'style': 'font-size:11.5px;opacity:.75;white-space:nowrap' },
+				_('Register relay (optional)')),
+			input,
+			saveBtn
+		]);
+	})();
 
 	return E('div', { 'class': 'dd-card' }, [
 		E('h4', { 'class': 'dd-card-title' }, _('WARP Configuration')),
@@ -570,6 +624,7 @@ function renderConfigCard(initial) {
 			_('Upload a WARP config.json exported elsewhere, or register a fresh account directly on the router.')),
 		configState,
 		E('div', { 'class': 'dd-actions' }, [ uploadBtn, registerBtn, removeBtn, status ]),
+		relayRow,
 		fileInput
 	]);
 }
@@ -697,9 +752,11 @@ function renderImportCard(ctx) {
 				});
 			});
 		}).then(function(r) {
-			status.flash(r.created
+			const msg = r.created
 				? _('Node added to group "%s" on daed.').format(GROUP_NAME)
-				: _('Node already existed \u2014 linked to group "%s".').format(GROUP_NAME), 'ok', 8000);
+				: _('Node already existed \u2014 linked to group "%s".').format(GROUP_NAME);
+			status.flash(msg, 'ok', 8000);
+			notify(msg, 'ok');
 		});
 	};
 
@@ -714,7 +771,9 @@ function renderImportCard(ctx) {
 				return beName === 'dae' ? importDae(link) : importDaed(link);
 			})
 			.catch(function(e) {
-				status.flash(_('Import failed: %s').format(e.message || e), 'err', 12000);
+				const msg = _('Import failed: %s').format(e.message || e);
+				status.flash(msg, 'err', 12000);
+				notify(msg, 'error');
 			})
 			.finally(function() { btn.disabled = false; });
 	});

@@ -4,7 +4,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=usque
 PKG_VERSION:=4.2.1
-PKG_RELEASE:=2
+PKG_RELEASE:=3
 
 PKG_SOURCE:=usque-src-4.2.1-04ef749a7ca3.tar.gz
 PKG_SOURCE_URL:=https://github.com/zjfjm/openwrt-daede/releases/download/usque-src

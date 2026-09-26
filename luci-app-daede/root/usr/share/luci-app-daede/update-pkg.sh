@@ -109,6 +109,7 @@ fi
 		asset_url=$(sh /usr/share/luci-app-daede/check-update.sh "$PKG" 2>/dev/null | cut -f2)
 		if [ -n "$asset_url" ]; then
 			GH_PROXY="$(uci -q get daede.config.github_proxy)"
+			[ -n "$GH_PROXY" ] || GH_PROXY="https://gh.845945.xyz/"
 			dl_url="$asset_url"
 			case "$dl_url" in
 				https://github.com/*)

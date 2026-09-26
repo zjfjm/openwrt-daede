@@ -20,11 +20,13 @@ start_service() {
 	config_get_bool enabled "config" "enabled" "0"
 	if [ "$enabled" -ne 1 ]; then
 		log "start: disabled in UCI, exit"
+		echo "usque is disabled in UCI" >&2
 		return 1
 	fi
 
 	if [ ! -s "$CFGFILE" ]; then
-		log "start: $CFGFILE missing or empty; upload a config.json first"
+		log "start: $CFGFILE missing or empty; register or upload a config first"
+		echo "$CFGFILE missing or empty - register or upload a WARP config first" >&2
 		return 1
 	fi
 

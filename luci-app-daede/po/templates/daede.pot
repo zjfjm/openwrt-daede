@@ -922,6 +922,12 @@ msgstr ""
 msgid "Release feed saved."
 msgstr ""
 
+msgid "GitHub Proxy saved."
+msgstr ""
+
+msgid "GitHub release check failed — set the GitHub Proxy and retry"
+msgstr ""
+
 
 msgid "Restart failed: %s"
 msgstr ""
@@ -1080,4 +1086,116 @@ msgid "usque is not installed"
 msgstr ""
 
 msgid "The WARP MASQUE tunnel needs the usque package from the package feed."
+msgstr ""
+
+msgid "Export failed: empty archive"
+msgstr ""
+
+msgid "unknown"
+msgstr ""
+
+msgid "Failed to write subscription file"
+msgstr ""
+
+msgid "Snapshot operation failed"
+msgstr ""
+
+msgid "daed subscription cleanup could not be verified"
+msgstr ""
+
+msgid "daed returned an invalid subscription list"
+msgstr ""
+
+msgid "new daed subscription snapshot is still referenced; it was kept"
+msgstr ""
+
+msgid "rollback was not confirmed; both subscription snapshots were kept"
+msgstr ""
+
+msgid "rollback could not be confirmed; both subscription snapshots were kept: %s"
+msgstr ""
+
+msgid "daed did not confirm the existing subscription link after refresh"
+msgstr ""
+
+msgid "daed subscription refresh failed; the new snapshot remains at the existing link and existing nodes were kept"
+msgstr ""
+
+msgid "daed did not confirm the new subscription link"
+msgstr ""
+
+msgid "Node %d"
+msgstr ""
+
+msgid "rollback could not be confirmed; the new subscription snapshot was kept: %s"
+msgstr ""
+
+msgid "snapshot stage cleanup failed: %s"
+msgstr ""
+
+msgid "Relay saved."
+msgstr ""
+
+msgid "Register relay (optional)"
+msgstr ""
+
+msgid "Restore Defaults"
+msgstr ""
+
+msgid "Working…"
+msgstr ""
+
+msgid "Apply or discard pending daede changes first."
+msgstr ""
+
+msgid "Confirm configuration operation"
+msgstr ""
+
+msgid "Continue"
+msgstr ""
+
+msgid "Configuration operation failed."
+msgstr ""
+
+msgid "Configuration operation failed. See the log below."
+msgstr ""
+
+msgid "Operation is still running. Check the log before retrying."
+msgstr ""
+
+msgid "Configuration restored"
+msgstr ""
+
+msgid "Reload Page"
+msgstr ""
+
+msgid "Export briefly stops running dae/daed services to back up the database safely, then resumes them. Continue?"
+msgstr ""
+
+msgid "Backup exceeds the 180 KiB limit. Use System Backup for larger files."
+msgstr ""
+
+msgid "Import replaces daede settings, nodes, subscriptions and dashboard data. Services stop first; the saved active backend starts only if enabled in the backup. Continue?"
+msgstr ""
+
+msgid "Unable to read backup file."
+msgstr ""
+
+msgid "Backup restored. The active backend follows the saved enabled setting."
+msgstr ""
+
+msgid "Restore ALL daede defaults? This clears dae/daed settings, nodes, subscriptions and daed dashboard accounts/data. Export a backup first if needed. Both backends will remain disabled. Installed programs and GeoData are kept."
+msgstr ""
+
+msgid "All defaults restored. Both backends are disabled. Configure your nodes and routing before starting manually."
+msgstr ""
+
+
+msgid "Source"
+msgstr ""
+
+msgid "Backups contain account and subscription credentials. Store them securely."
+msgstr ""
+
+msgid "daed request timed out"
 msgstr ""

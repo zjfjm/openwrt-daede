@@ -63,6 +63,10 @@ const CSS = [
 	'.dd-geo-row{display:grid;grid-template-columns:96px 1fr;gap:10px;align-items:center;font-size:12px;padding:6px 0}',
 	'.dd-geo-row label{opacity:.75;font-weight:600}',
 	'.dd-geo-row input[type=text],.dd-geo-row select{font-size:12px;padding:4px 8px;border:1px solid rgba(128,128,128,.35);border-radius:5px;background:transparent;color:inherit;width:100%}',
+	/* visible GitHub proxy row inside the Package Updates card */
+	'.dd-proxy-row{display:grid;grid-template-columns:96px minmax(0,1fr) auto;gap:10px;align-items:center;font-size:12px;padding:6px 0;margin-bottom:4px}',
+	'.dd-proxy-row label{opacity:.75;font-weight:600}',
+	'.dd-proxy-row input[type=text]{font-size:12px;padding:4px 8px;border:1px solid rgba(128,128,128,.35);border-radius:5px;background:transparent;color:inherit;width:100%;min-width:0}',
 	/* selects cap at 200px on wide screens, shrink to the column on mobile (no overflow) */
 	'.dd-geo-row select{width:100%!important;max-width:200px;box-sizing:border-box}',
 	'.dd-geo-actions{margin-top:10px;display:flex;gap:10px;align-items:center}',
@@ -133,15 +137,17 @@ function probePkg(pkg) {
 }
 
 // Ask the configured GitHub release feed (daede.config.update_repo) whether a
-// newer build exists than the one installed. Returns { latest, asset } where
-// asset is the download URL of the matching package file (empty when the local
-// build is already newest, or the feed could not be reached).
+// newer build exists than the one installed. Returns { latest, asset, ok }
+// where asset is the download URL of the matching package file (empty when
+// the local build is already newest) and ok is false when the feed could not
+// be reached or parsed — the caller must show a check failure, not "up to
+// date", in that case.
 function probeRelease(pkg) {
 	return fs.exec('/usr/share/luci-app-daede/check-update.sh', [pkg]).then(function(res) {
 		const out = (res.stdout || '').trim().split('\t');
-		return { latest: out[0] || '', asset: out[1] || '' };
+		return { latest: out[0] || '', asset: out[1] || '', ok: !!(res && res.code === 0) };
 	}).catch(function() {
-		return { latest: '', asset: '' };
+		return { latest: '', asset: '', ok: false };
 	});
 }
 
@@ -444,7 +450,7 @@ return view.extend({
 			}).concat([
 				{ k: 'luci-app-daede', name: 'luci-app-daede', r: luci, rel: releaseInfo['luci-app-daede'] }
 			]).forEach(function(entry) {
-				const rel = entry.rel || { latest: '', asset: '' };
+				const rel = entry.rel || { latest: '', asset: '', ok: true };
 				// Prefer the package feed (R2) when it offers a strictly newer
 				// build; otherwise fall back to a release asset from the
 				// configured GitHub repo (so forks can distribute upgrades).
@@ -452,9 +458,15 @@ return view.extend({
 					? cmpVer(entry.r.latest, entry.r.installed) : null;
 				const feedNewer = cmp !== null && cmp > 0;
 				const releaseNewer = !!(rel.latest && rel.asset && (!entry.r.installed || cmpVer(rel.latest, entry.r.installed) > 0));
+				// The release feed could not be reached/parsed — never render
+				// that as "up to date"; tell the user to fix the proxy instead.
+				const checkFail = rel.ok === false && !feedNewer && !releaseNewer;
 
 				let btn, meta;
-				if (!entry.r.installed && !rel.latest) {
+				if (checkFail) {
+					meta = _('installed') + ': ' + (entry.r.installed || _('unknown')) + ' · ' + _('GitHub release check failed — set the GitHub Proxy and retry');
+					btn = E('button', { 'class': 'dd-up-btn', 'type': 'button', 'disabled': true }, _('Upgrade'));
+				} else if (!entry.r.installed && !rel.latest) {
 					meta = _('not installed via package manager');
 					btn = E('button', { 'class': 'dd-up-btn', 'type': 'button', 'disabled': true }, _('Unavailable'));
 				} else if (feedNewer) {
@@ -478,8 +490,8 @@ return view.extend({
 					btn = E('button', { 'class': 'dd-up-btn', 'type': 'button', 'disabled': true }, _('Upgrade'));
 				}
 				pkgBody.appendChild(mkRow(
-					(feedNewer || releaseNewer) ? '↑' : (entry.r.installed ? '✓' : '✗'),
-					(feedNewer || releaseNewer) ? 'dd-up-new' : (entry.r.installed ? 'dd-up-ok' : 'dd-up-err'),
+					checkFail ? '⚠' : ((feedNewer || releaseNewer) ? '↑' : (entry.r.installed ? '✓' : '✗')),
+					checkFail ? 'dd-up-warn' : ((feedNewer || releaseNewer) ? 'dd-up-new' : (entry.r.installed ? 'dd-up-ok' : 'dd-up-err')),
 					entry.name,
 					meta,
 					btn
@@ -540,17 +552,13 @@ return view.extend({
 		// === Release feed source (which GitHub repo to check for updates) ===
 		const feedSettings = (function() {
 			const repo0 = uci.get('daede', 'config', 'update_repo') || 'zjfjm/openwrt-daede';
-			const proxy0 = uci.get('daede', 'config', 'github_proxy') || '';
 
 			const repoInput = E('input', { 'type': 'text', 'placeholder': 'user/repo' });
 			repoInput.value = repo0;
-			const proxyInput = E('input', { 'type': 'text', 'placeholder': 'https://ghfast.top/' });
-			proxyInput.value = proxy0;
 
 			const saveBtn = E('button', { 'class': 'dd-up-btn dd-up-btn-primary' }, _('Save'));
 			saveBtn.addEventListener('click', function() {
 				uci.set('daede', 'config', 'update_repo', repoInput.value.trim());
-				uci.set('daede', 'config', 'github_proxy', proxyInput.value.trim());
 				const orig = saveBtn.textContent;
 				saveBtn.disabled = true; saveBtn.textContent = '...';
 				uci.save().then(function() {
@@ -578,7 +586,6 @@ return view.extend({
 				]),
 				E('div', { 'class': 'dd-adv-body' }, [
 					E('div', { 'class': 'dd-geo-row' }, [ E('label', {}, _('Repository')), repoInput ]),
-					E('div', { 'class': 'dd-geo-row' }, [ E('label', {}, _('GitHub Proxy')), proxyInput ]),
 					E('div', { 'class': 'dd-geo-actions' }, [ saveBtn ])
 				])
 			]);
@@ -586,6 +593,44 @@ return view.extend({
 				adv.classList.toggle('dd-closed');
 			});
 			return adv;
+		})();
+
+		// === GitHub proxy, shown right in the Package Updates card ===
+		// The probe hits api.github.com, which many networks block; without a
+		// visible way to set the proxy the rows silently claim "up to date".
+		const proxySettings = (function() {
+			const proxy0 = uci.get('daede', 'config', 'github_proxy') || '';
+			const input = E('input', { 'type': 'text', 'placeholder': 'https://gh.845945.xyz/' });
+			input.value = proxy0 || 'https://gh.845945.xyz/';
+
+			const saveBtn = E('button', { 'class': 'dd-up-btn dd-up-btn-primary', 'type': 'button' }, _('Save'));
+			saveBtn.addEventListener('click', function() {
+				uci.set('daede', 'config', 'github_proxy', input.value.trim());
+				const orig = saveBtn.textContent;
+				saveBtn.disabled = true; saveBtn.textContent = '...';
+				uci.save().then(function() {
+					return uci.changes();
+				}).then(function(changes) {
+					if (changes && Object.keys(changes).length)
+						return uci.apply();
+				}).then(function() {
+					logPane.textContent = _('GitHub Proxy saved.');
+					logPane.classList.add('show');
+					ui.changes.init();
+					return doCheck();
+				}).catch(function(e) {
+					logPane.textContent = _('Save failed') + ': ' + (e && e.message ? e.message : e);
+					logPane.classList.add('show');
+				}).finally(function() {
+					saveBtn.disabled = false; saveBtn.textContent = orig;
+				});
+			});
+
+			return E('div', { 'class': 'dd-proxy-row' }, [
+				E('label', {}, _('GitHub Proxy')),
+				input,
+				saveBtn
+			]);
 		})();
 
 		// === Geo data source (preset / custom URL + auto-update) ===
@@ -693,6 +738,7 @@ return view.extend({
 					checkBtn,
 					checkSrc
 				]),
+				proxySettings,
 				pkgBody,
 				feedSettings
 			]),

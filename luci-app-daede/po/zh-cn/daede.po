@@ -1201,6 +1201,12 @@ msgstr "GitHub 代理"
 msgid "Release feed saved."
 msgstr "更新源已保存。"
 
+msgid "GitHub Proxy saved."
+msgstr "GitHub 代理已保存。"
+
+msgid "GitHub release check failed — set the GitHub Proxy and retry"
+msgstr "GitHub 发布检查失败 —— 请设置 GitHub 代理后重试"
+
 # ---- masque.js ----
 
 msgid "Restart failed: %s"
@@ -1355,3 +1361,67 @@ msgstr "usque 未安装"
 
 msgid "The WARP MASQUE tunnel needs the usque package from the package feed."
 msgstr "WARP MASQUE 隧道需要软件源中的 usque 软件包。"
+
+msgid "Export failed: empty archive"
+msgstr "导出失败：归档为空"
+
+msgid "unknown"
+msgstr "未知"
+
+msgid "Failed to write subscription file"
+msgstr "无法写入订阅文件"
+
+msgid "Snapshot operation failed"
+msgstr "快照操作失败"
+
+msgid "daed subscription cleanup could not be verified"
+msgstr "无法确认 daed 订阅清理结果"
+
+msgid "daed returned an invalid subscription list"
+msgstr "daed 返回了无效的订阅列表"
+
+msgid "new daed subscription snapshot is still referenced; it was kept"
+msgstr "新的 daed 订阅快照仍被引用，已保留"
+
+msgid "rollback was not confirmed; both subscription snapshots were kept"
+msgstr "回滚未确认，两个订阅快照均已保留"
+
+msgid "rollback could not be confirmed; both subscription snapshots were kept: %s"
+msgstr "无法确认回滚，两个订阅快照均已保留：%s"
+
+msgid "daed did not confirm the existing subscription link after refresh"
+msgstr "刷新后 daed 未确认原有订阅链接"
+
+msgid "daed subscription refresh failed; the new snapshot remains at the existing link and existing nodes were kept"
+msgstr "daed 订阅刷新失败；新快照保留在原链接，现有节点已保留"
+
+msgid "daed did not confirm the new subscription link"
+msgstr "daed 未确认新订阅链接"
+
+msgid "Node %d"
+msgstr "节点 %d"
+
+msgid "rollback could not be confirmed; the new subscription snapshot was kept: %s"
+msgstr "无法确认回滚；新订阅快照已保留：%s"
+
+msgid "snapshot stage cleanup failed: %s"
+msgstr "快照暂存清理失败：%s"
+
+# ---- masque.js ----
+
+msgid "Relay saved."
+msgstr "中转已保存。"
+
+msgid "Register relay (optional)"
+msgstr "注册中转（可选）"
+
+# ---- masque.js ----
+
+
+msgid "dae + daed"
+msgstr "dae + daed"
+
+# ---- masque.js ----
+
+msgid "daed request timed out"
+msgstr "访问 daed 超时"
