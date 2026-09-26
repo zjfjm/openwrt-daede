@@ -258,7 +258,9 @@ function convertMasque(node) {
 	const params = new URLSearchParams();
 	params.set('cfg', base64Url(JSON.stringify(cfg)));
 	params.set('port', String(node.port));
-	setIf(params, 'sni', node.sni || node.servername);
+	// sni/servername is deliberately not carried over: the WARP MASQUE
+	// endpoint requires its own fixed SNI, and copy-pasted servername
+	// values make Cloudflare reject the CONNECT with 403.
 	if (node['skip-cert-verify'])
 		params.set('allowInsecure', '1');
 

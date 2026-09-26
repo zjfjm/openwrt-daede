@@ -1,9 +1,9 @@
 diff --git a/dialer/masque/masque.go b/dialer/masque/masque.go
 new file mode 100644
-index 0000000..ff9c7ea
+index 0000000..28a40a9
 --- /dev/null
 +++ b/dialer/masque/masque.go
-@@ -0,0 +1,265 @@
+@@ -0,0 +1,267 @@
 +/*
 + * SPDX-License-Identifier: AGPL-3.0-only
 + * Copyright (c) 2026 daeuniverse Organization <dae@v2raya.org>
@@ -73,7 +73,7 @@ index 0000000..ff9c7ea
 +//
 +// The link format is:
 +//
-+//	masque://<endpoint-host>?cfg=<base64url(config.json)>&port=443&ipv6=0&insecure=0&sni=...#<name>
++//	masque://<endpoint-host>?cfg=<base64url(config.json)>&port=443&ipv6=0&insecure=0#<name>
 +//
 +// Precedence for the entry point: endpoint= query, then the link host, then
 +// endpoint_v4/endpoint_v6 from the embedded config (chosen by ipv6=).
@@ -145,10 +145,12 @@ index 0000000..ff9c7ea
 +	if name == "" {
 +		name = "masque"
 +	}
-+	sni := q.Get("sni")
-+	if sni == "" {
-+		sni = DefaultSNI
-+	}
++	// The TLS SNI is fixed to the WARP entry point name (usque
++	// internal.L4ConnectSNI). Any sni link parameter is deliberately
++	// ignored: airport subscriptions carry copy-pasted servername values
++	// (e.g. www.microsoft.com) that make Cloudflare accept the QUIC/TLS
++	// handshake but reject the CONNECT stream with 403.
++	sni := DefaultSNI
 +
 +	return &Masque{
 +		name:     name,
@@ -271,10 +273,10 @@ index 0000000..ff9c7ea
 +}
 diff --git a/dialer/masque/masque_test.go b/dialer/masque/masque_test.go
 new file mode 100644
-index 0000000..e4722e4
+index 0000000..5fa23e6
 --- /dev/null
 +++ b/dialer/masque/masque_test.go
-@@ -0,0 +1,218 @@
+@@ -0,0 +1,232 @@
 +/*
 + * SPDX-License-Identifier: AGPL-3.0-only
 + * Copyright (c) 2026 daeuniverse Organization <dae@v2raya.org>
@@ -361,6 +363,20 @@ index 0000000..e4722e4
 +	}
 +	if m.insecure {
 +		t.Error("insecure = true, want false")
++	}
++}
++
++func TestParseMasqueURLIgnoresSNIParam(t *testing.T) {
++	// A copy-pasted servername in the link must not override the WARP
++	// entry point SNI; Cloudflare rejects CONNECT with 403 otherwise.
++	_, b64 := testConfigJSON(t)
++	link := "masque://?cfg=" + b64 + "&sni=www.microsoft.com"
++	m, err := ParseMasqueURL(link, false)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if m.sni != DefaultSNI {
++		t.Errorf("sni = %q, want %q (sni param must be ignored)", m.sni, DefaultSNI)
 +	}
 +}
 +
