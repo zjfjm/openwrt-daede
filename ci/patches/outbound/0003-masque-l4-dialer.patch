@@ -1,9 +1,9 @@
 diff --git a/dialer/masque/masque.go b/dialer/masque/masque.go
 new file mode 100644
-index 0000000..f2f2836
+index 0000000..ff9c7ea
 --- /dev/null
 +++ b/dialer/masque/masque.go
-@@ -0,0 +1,256 @@
+@@ -0,0 +1,265 @@
 +/*
 + * SPDX-License-Identifier: AGPL-3.0-only
 + * Copyright (c) 2026 daeuniverse Organization <dae@v2raya.org>
@@ -193,12 +193,21 @@ index 0000000..f2f2836
 +// DialContext opens target as a stream on the shared HTTP/3 connection.
 +// UDP is not supported by the L4 MASQUE mode.
 +func (m *Masque) DialContext(ctx context.Context, network, addr string) (netproxy.Conn, error) {
-+	switch network {
++	// dae may encode SO_MARK/MPTCP/IP-version into the network string
++	// (netproxy.MagicNetwork); parse it like every other dialer and dispatch
++	// on the underlying transport. Mark/Mptcp cannot be honored here: the
++	// outer TCP socket to the WARP edge is owned by the endpoint, which
++	// dials the target itself.
++	mn, err := netproxy.ParseMagicNetwork(network)
++	if err != nil {
++		return nil, err
++	}
++	switch mn.Network {
 +	case "tcp", "tcp4", "tcp6":
 +	case "udp", "udp4", "udp6":
 +		return nil, netproxy.UnsupportedTunnelTypeError
 +	default:
-+		return nil, fmt.Errorf("%w: %v", netproxy.UnsupportedTunnelTypeError, network)
++		return nil, fmt.Errorf("%w: %v", netproxy.UnsupportedTunnelTypeError, mn.Network)
 +	}
 +	sess, err := m.getSession()
 +	if err != nil {
@@ -262,10 +271,10 @@ index 0000000..f2f2836
 +}
 diff --git a/dialer/masque/masque_test.go b/dialer/masque/masque_test.go
 new file mode 100644
-index 0000000..75c8a0a
+index 0000000..e4722e4
 --- /dev/null
 +++ b/dialer/masque/masque_test.go
-@@ -0,0 +1,200 @@
+@@ -0,0 +1,218 @@
 +/*
 + * SPDX-License-Identifier: AGPL-3.0-only
 + * Copyright (c) 2026 daeuniverse Organization <dae@v2raya.org>
@@ -436,6 +445,24 @@ index 0000000..75c8a0a
 +	}
 +	if _, err := m.DialContext(context.Background(), "udp", "1.1.1.1:53"); !errors.Is(err, netproxy.UnsupportedTunnelTypeError) {
 +		t.Errorf("udp dial error = %v, want UnsupportedTunnelTypeError", err)
++	}
++}
++
++func TestDialContextParsesMagicNetwork(t *testing.T) {
++	link := testLink(t, "", "")
++	m, err := ParseMasqueURL(link, false)
++	if err != nil {
++		t.Fatal(err)
++	}
++	// dae encodes SO_MARK/MPTCP into the network string; the encoded udp
++	// form must still be rejected as unsupported, not fall through.
++	encodedUDP := netproxy.MagicNetwork{Network: "udp"}.Encode()
++	if _, err := m.DialContext(context.Background(), encodedUDP, "1.1.1.1:53"); !errors.Is(err, netproxy.UnsupportedTunnelTypeError) {
++		t.Errorf("encoded udp dial error = %v, want UnsupportedTunnelTypeError", err)
++	}
++	// a truncated magic encoding surfaces the parse error instead.
++	if _, err := m.DialContext(context.Background(), "\x00\x03", "1.1.1.1:53"); err == nil || errors.Is(err, netproxy.UnsupportedTunnelTypeError) {
++		t.Errorf("truncated magic dial error = %v, want parse error", err)
 +	}
 +}
 +
