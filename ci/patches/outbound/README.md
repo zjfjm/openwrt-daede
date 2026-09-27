@@ -61,18 +61,22 @@ daed gains native Cloudflare WARP MASQUE nodes through a new dialer package.
 The link format is
 
 ```
-masque://<endpoint-host>?cfg=<base64url(config.json)>&port=443&ipv6=0&insecure=0#<name>
+masque://<endpoint-host>?cfg=<base64url(config.json)>&port=443&ipv6=0&insecure=0&conns=8#<name>
 ```
 
 where `cfg` carries the WARP registration config.json (`private_key`,
 `endpoint_pub_key`, `endpoint_v4`, `endpoint_v6`, optional id/ipv4/ipv6).
-The dialer keeps one shared HTTP/3 connection per node and opens a plain
-HTTP/3 CONNECT stream per proxied TCP connection (usque's L4 mode); UDP is
-rejected with `UnsupportedTunnelTypeError` for now. Endpoint pinning, the
-`consumer-masque-proxy.cloudflareclient.com` SNI and the per-session client
-certificate mirror usque. The `masque` scheme is registered via
-`dialer.FromLinkRegister`; dae/daed core only needs the one-line blank import
-carried in `dae/patches/011-*` and `daed/patches/0013-*`.
+The dialer keeps a pool of shared HTTP/3 connections per node (`conns=`
+link parameter, default 8, max 32) and opens a plain HTTP/3 CONNECT stream
+per proxied TCP connection (usque's L4 mode), spreading streams round-robin
+across the pool: the path caps each individual QUIC connection's download to
+roughly 17-20 KB/s (measured against 162.159.198.2 from CN on 2026-09-27),
+so one connection never exceeds that while N connections scale the aggregate
+about N-fold. UDP is rejected with `UnsupportedTunnelTypeError` for now.
+Endpoint pinning, the `consumer-masque-proxy.cloudflareclient.com` SNI and the
+per-session client certificate mirror usque. The `masque` scheme is registered
+via `dialer.FromLinkRegister`; dae/daed core only needs the one-line blank
+import carried in `dae/patches/011-*` and `daed/patches/0013-*`.
 
 Test with `go test ./dialer/masque/` (link parsing; no network needed).
 

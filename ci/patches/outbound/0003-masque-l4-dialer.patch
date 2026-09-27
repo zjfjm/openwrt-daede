@@ -1,17 +1,19 @@
 diff --git a/dialer/masque/masque.go b/dialer/masque/masque.go
 new file mode 100644
-index 0000000..28a40a9
+index 0000000..34f3cb8
 --- /dev/null
 +++ b/dialer/masque/masque.go
-@@ -0,0 +1,267 @@
+@@ -0,0 +1,289 @@
 +/*
 + * SPDX-License-Identifier: AGPL-3.0-only
 + * Copyright (c) 2026 daeuniverse Organization <dae@v2raya.org>
 + */
 +
-+// Package masque implements the Cloudflare WARP MASQUE outbound: one shared
-+// HTTP/3 connection to a WARP entry point, with every proxied TCP connection
-+// carried on its own HTTP/3 CONNECT stream (usque's L4 mode).
++// Package masque implements the Cloudflare WARP MASQUE outbound: a pool of
++// shared HTTP/3 connections to a WARP entry point, with every proxied TCP
++// connection carried on its own HTTP/3 CONNECT stream (usque's L4 mode).
++// Streams are spread round-robin across the pool because the path caps each
++// individual QUIC connection's download to roughly 17-20 KB/s.
 +package masque
 +
 +import (
@@ -40,6 +42,14 @@ index 0000000..28a40a9
 +	DefaultSNI = "consumer-masque-proxy.cloudflareclient.com"
 +
 +	defaultConnectPort = 443
++
++	// defaultConnPool is the number of parallel QUIC connections per node.
++	// Each connection is capped at roughly 17-20 KB/s of download by the
++	// path, so the pool multiplies the aggregate; 8 keeps worst-case
++	// connection churn modest while still tripling-plus real throughput.
++	defaultConnPool = 8
++
++	maxConnPool = 32
 +)
 +
 +// Config is the subset of a WARP registration config.json required to open
@@ -63,6 +73,7 @@ index 0000000..28a40a9
 +	cfg      Config
 +	sni      string
 +	insecure bool
++	conns    int // QUIC connection pool size (conns= link parameter)
 +
 +	mu     sync.Mutex
 +	sess   *session
@@ -73,7 +84,7 @@ index 0000000..28a40a9
 +//
 +// The link format is:
 +//
-+//	masque://<endpoint-host>?cfg=<base64url(config.json)>&port=443&ipv6=0&insecure=0#<name>
++//	masque://<endpoint-host>?cfg=<base64url(config.json)>&port=443&ipv6=0&insecure=0&conns=8#<name>
 +//
 +// Precedence for the entry point: endpoint= query, then the link host, then
 +// endpoint_v4/endpoint_v6 from the embedded config (chosen by ipv6=).
@@ -145,6 +156,16 @@ index 0000000..28a40a9
 +	if name == "" {
 +		name = "masque"
 +	}
++
++	conns := defaultConnPool
++	if connsStr := q.Get("conns"); connsStr != "" {
++		n, err := strconv.ParseUint(connsStr, 10, 8)
++		if err != nil || n < 1 || n > maxConnPool {
++			return nil, fmt.Errorf("%w: invalid conns %q", dialer.InvalidParameterErr, connsStr)
++		}
++		conns = int(n)
++	}
++
 +	// The TLS SNI is fixed to the WARP entry point name (usque
 +	// internal.L4ConnectSNI). Any sni link parameter is deliberately
 +	// ignored: airport subscriptions carry copy-pasted servername values
@@ -159,6 +180,7 @@ index 0000000..28a40a9
 +		cfg:      cfg,
 +		sni:      sni,
 +		insecure: allowInsecure || dialer.AllowInsecureFromQuery(q),
++		conns:    conns,
 +	}, nil
 +}
 +
@@ -511,10 +533,10 @@ index 0000000..5fa23e6
 +}
 diff --git a/dialer/masque/session.go b/dialer/masque/session.go
 new file mode 100644
-index 0000000..9e54d5e
+index 0000000..62ca22a
 --- /dev/null
 +++ b/dialer/masque/session.go
-@@ -0,0 +1,403 @@
+@@ -0,0 +1,425 @@
 +/*
 + * SPDX-License-Identifier: AGPL-3.0-only
 + * Copyright (c) 2026 daeuniverse Organization <dae@v2raya.org>
@@ -532,6 +554,7 @@ index 0000000..9e54d5e
 +	"strconv"
 +	"strings"
 +	"sync"
++	"sync/atomic"
 +	"time"
 +
 +	"github.com/olicesx/quic-go"
@@ -544,11 +567,20 @@ index 0000000..9e54d5e
 +)
 +
 +// session multiplexes every proxied TCP connection as one HTTP/3 CONNECT
-+// stream over a single shared QUIC connection to the entry point
-+// (usque api.L4Proxy).
++// stream over a pool of shared QUIC connections to the entry point
++// (usque api.L4Proxy). Each UDP flow is rate-limited to roughly 17-20 KB/s
++// of download by the path, so a single connection never exceeds that;
++// spreading streams across N connections scales the aggregate roughly N-fold
++// (measured 4.5x with 4 connections against the same endpoint).
 +type session struct {
 +	masque *Masque
++	slots  []*connSlot
++	rr     uint64
++}
 +
++// connSlot holds at most one QUIC connection. The slot mutex serialises
++// lazy dialling and eviction so concurrent dials reuse one handshake.
++type connSlot struct {
 +	mu     sync.Mutex
 +	client *l4Client
 +}
@@ -561,7 +593,16 @@ index 0000000..9e54d5e
 +}
 +
 +func (m *Masque) newSession() *session {
-+	return &session{masque: m}
++	s := &session{masque: m}
++	n := m.conns
++	if n < 1 {
++		n = defaultConnPool
++	}
++	s.slots = make([]*connSlot, n)
++	for i := range s.slots {
++		s.slots[i] = &connSlot{}
++	}
++	return s
 +}
 +
 +// DialContext connects target over an L4 MASQUE HTTP/3 CONNECT stream.
@@ -615,7 +656,7 @@ index 0000000..9e54d5e
 +}
 +
 +func (s *session) dial(ctx context.Context, target string) (net.Conn, error) {
-+	h3Client, err := s.getOrCreateClientConn(ctx)
++	h3Client, err := s.acquireClientConn(ctx)
 +	if err != nil {
 +		return nil, err
 +	}
@@ -625,16 +666,17 @@ index 0000000..9e54d5e
 +		if !shouldReconnectOnOpenStreamError(ctx, err) {
 +			return nil, err
 +		}
-+		// The cached HTTP/3 connection might be stale; reconnect once and retry.
-+		s.closeClientConnIfCurrent(h3Client)
-+		h3Client, err = s.getOrCreateClientConn(ctx)
++		// The cached HTTP/3 connection might be stale; evict it, move to the
++		// next pool slot and retry.
++		s.evictClientConn(h3Client)
++		h3Client, err = s.acquireClientConn(ctx)
 +		if err != nil {
 +			return nil, err
 +		}
 +		stream, err = h3Client.clientConn.OpenRequestStream(ctx)
 +		if err != nil {
 +			if shouldReconnectOnOpenStreamError(ctx, err) {
-+				s.closeClientConnIfCurrent(h3Client)
++				s.evictClientConn(h3Client)
 +			}
 +			return nil, err
 +		}
@@ -719,15 +761,25 @@ index 0000000..9e54d5e
 +	return true
 +}
 +
-+func (s *session) getOrCreateClientConn(ctx context.Context) (*l4Client, error) {
-+	s.mu.Lock()
-+	if s.client != nil {
-+		client := s.client
-+		s.mu.Unlock()
-+		return client, nil
++// acquireClientConn returns the shared connection for the next pool slot
++// (round-robin), dialling it lazily under the slot lock.
++func (s *session) acquireClientConn(ctx context.Context) (*l4Client, error) {
++	idx := atomic.AddUint64(&s.rr, 1) - 1
++	slot := s.slots[idx%uint64(len(s.slots))]
++	slot.mu.Lock()
++	defer slot.mu.Unlock()
++	if slot.client != nil {
++		return slot.client, nil
 +	}
-+	s.mu.Unlock()
++	client, err := s.dialClientConn(ctx)
++	if err != nil {
++		return nil, err
++	}
++	slot.client = client
++	return client, nil
++}
 +
++func (s *session) dialClientConn(ctx context.Context) (*l4Client, error) {
 +	endpoint, err := net.ResolveUDPAddr("udp", s.masque.endpoint)
 +	if err != nil {
 +		return nil, fmt.Errorf("resolve masque endpoint: %w", err)
@@ -751,49 +803,41 @@ index 0000000..9e54d5e
 +		return nil, err
 +	}
 +
-+	created := &l4Client{
++	return &l4Client{
 +		transport:  qtr,
 +		udpConn:    udpConn,
 +		quicConn:   quicConn,
 +		clientConn: (&http3.Transport{}).NewClientConn(quicConn),
-+	}
-+
-+	s.mu.Lock()
-+	if s.client != nil {
-+		current := s.client
-+		s.mu.Unlock()
-+		closeL4HTTP3(created)
-+		return current, nil
-+	}
-+	s.client = created
-+	s.mu.Unlock()
-+
-+	return created, nil
++	}, nil
 +}
 +
-+func (s *session) closeClientConnIfCurrent(expected *l4Client) {
++// evictClientConn closes the expected connection and clears the pool slot
++// that still points at it so the next dial rebuilds it.
++func (s *session) evictClientConn(expected *l4Client) {
 +	if expected == nil {
 +		return
 +	}
-+
-+	s.mu.Lock()
-+	if s.client != expected {
-+		s.mu.Unlock()
-+		return
++	for _, slot := range s.slots {
++		slot.mu.Lock()
++		if slot.client == expected {
++			slot.client = nil
++			slot.mu.Unlock()
++			closeL4HTTP3(expected)
++			return
++		}
++		slot.mu.Unlock()
 +	}
-+	s.client = nil
-+	s.mu.Unlock()
-+
-+	closeL4HTTP3(expected)
 +}
 +
 +func (s *session) close() {
-+	s.mu.Lock()
-+	client := s.client
-+	s.client = nil
-+	s.mu.Unlock()
-+	if client != nil {
-+		closeL4HTTP3(client)
++	for _, slot := range s.slots {
++		slot.mu.Lock()
++		client := slot.client
++		slot.client = nil
++		slot.mu.Unlock()
++		if client != nil {
++			closeL4HTTP3(client)
++		}
 +	}
 +}
 +
