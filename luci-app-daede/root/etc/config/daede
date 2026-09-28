@@ -7,3 +7,7 @@ config daede 'config'
 
 	# Optional proxy prefix for github.com (e.g. https://ghfast.top/).
 	option github_proxy 'https://ghfast.top/'
+
+	# Route GeoIP/GeoSite downloads through github_proxy when "1"
+	# (Updates page → Data Source → Enable proxy). Default: off.
+	option geo_proxy '0'

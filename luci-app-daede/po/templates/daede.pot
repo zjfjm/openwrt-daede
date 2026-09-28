@@ -857,6 +857,9 @@ msgstr ""
 msgid "Custom"
 msgstr ""
 
+msgid "Enable proxy"
+msgstr ""
+
 msgid "Auto-update"
 msgstr ""
 

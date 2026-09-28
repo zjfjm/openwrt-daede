@@ -681,6 +681,8 @@ return view.extend({
 			const gs0 = uci.get('daede', 'config', 'geosite_url') || '';
 			const auto0 = uci.get('daede', 'config', 'geo_auto') === '1';
 			const freq0 = uci.get('daede', 'config', 'geo_auto_freq') || 'daily';
+			// "Enable proxy" — off unless explicitly saved as '1'.
+			const proxy0 = uci.get('daede', 'config', 'geo_proxy') === '1';
 			const preset0 = currentPreset(gi0, gs0);
 
 			const presetSel = E('select', {}, [
@@ -712,6 +714,11 @@ return view.extend({
 			]);
 			autoSel.value = auto0 ? freq0 : 'off';
 
+			// Toggle next to the source selector: sends GeoIP/GeoSite downloads
+			// through the GitHub proxy (update-geo.sh reads daede.config.geo_proxy).
+			const proxyCb = E('input', { 'type': 'checkbox' });
+			proxyCb.checked = proxy0;
+
 			const saveBtn = E('button', { 'class': 'dd-up-btn dd-up-btn-primary' }, _('Save'));
 			saveBtn.addEventListener('click', function() {
 				const p = presetSel.value;
@@ -724,6 +731,7 @@ return view.extend({
 				uci.set('daede', 'config', 'geosite_url', gs);
 				uci.set('daede', 'config', 'geo_auto', geoAuto ? '1' : '0');
 				uci.set('daede', 'config', 'geo_auto_freq', geoFreq);
+				uci.set('daede', 'config', 'geo_proxy', proxyCb.checked ? '1' : '0');
 				const orig = saveBtn.textContent;
 				saveBtn.disabled = true; saveBtn.textContent = '...';
 				uci.save().then(function() {
@@ -752,7 +760,16 @@ return view.extend({
 					E('span', { 'class': 'dd-adv-chevron' }, '›')
 				]),
 				E('div', { 'class': 'dd-adv-body' }, [
-					E('div', { 'class': 'dd-geo-row' }, [ E('label', {}, _('Source')), presetSel ]),
+					E('div', { 'class': 'dd-geo-row' }, [
+					E('label', {}, _('Source')),
+					E('div', { 'style': 'display:flex;gap:16px;align-items:center;flex-wrap:wrap' }, [
+						presetSel,
+						E('label', { 'style': 'display:flex;gap:5px;align-items:center;cursor:pointer;font-weight:600;opacity:.9' }, [
+							proxyCb,
+							E('span', {}, _('Enable proxy'))
+						])
+					])
+				]),
 					customRows,
 					E('div', { 'class': 'dd-geo-row' }, [
 						E('label', {}, _('Auto-update')),

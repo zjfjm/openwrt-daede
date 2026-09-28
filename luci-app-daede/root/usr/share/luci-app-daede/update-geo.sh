@@ -26,6 +26,22 @@ case "$TYPE" in
 esac
 [ -n "$URL" ] || URL="$DEF_URL"
 
+# Optional "Enable proxy" toggle (Updates page → Data Source, stored as
+# daede.config.geo_proxy). When set, GitHub-hosted downloads are prefixed
+# with the configured GitHub proxy (daede.config.github_proxy, default
+# ghfast.top) — same mechanism the release/asset downloads use. Only
+# github.com / raw.githubusercontent.com URLs are rewritten; a custom
+# non-GitHub source must keep its original address.
+if [ "$(uci -q get daede.config.geo_proxy)" = "1" ]; then
+	case "$URL" in
+		https://github.com/*|https://raw.githubusercontent.com/*)
+			GP="$(uci -q get daede.config.github_proxy)"
+			[ -n "$GP" ] || GP="https://ghfast.top/"
+			URL="${GP}${URL}"
+			;;
+	esac
+fi
+
 LOCK="/tmp/luci-app-daede.${TYPE}.lock"
 LOG="/tmp/luci-app-daede.${TYPE}.log"
 RLOCK="/tmp/luci-app-daede.geo-reload.lock"
