@@ -22,7 +22,7 @@ esac
 
 # Optional proxy prefix for github.com (e.g. https://ghfast.top/).
 GH_PROXY="$(uci -q get daede.config.github_proxy)"
-[ -n "$GH_PROXY" ] || GH_PROXY="https://gh.845945.xyz/"
+[ -n "$GH_PROXY" ] || GH_PROXY="https://ghfast.top/"
 
 LOCK="/tmp/luci-app-daede.asset-${PKG}.lock"
 LOG="/tmp/luci-app-daede.asset-${PKG}.log"

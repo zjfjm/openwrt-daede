@@ -23,12 +23,11 @@ UPDATE_REPO="$(uci -q get daede.config.update_repo)"
 [ -n "$UPDATE_REPO" ] || UPDATE_REPO="zjfjm/openwrt-daede"
 
 # Optional prefix for github.com (e.g. https://ghfast.top/) when the device
-# cannot reach GitHub directly. Applied to api.github.com too.
+# cannot reach GitHub directly. Applied to api.github.com too, but only as a
+# fallback: mirrors that rewrite the path answer /https://api.github.com/...
+# with 404, so prefixing the API unconditionally made every release check fail.
 GH_PROXY="$(uci -q get daede.config.github_proxy)"
-# This fork's own proxy when nothing is configured yet — the GitHub API is
-# unreachable from many networks, and an empty probe must not look like
-# "already up to date". Set daede.config.github_proxy to override.
-[ -n "$GH_PROXY" ] || GH_PROXY="https://gh.845945.xyz/"
+[ -n "$GH_PROXY" ] || GH_PROXY="https://ghfast.top/"
 
 fetch_text() {
 	if command -v curl >/dev/null 2>&1; then
@@ -51,14 +50,21 @@ with_proxy() {
 	esac
 }
 
-# Installed version, same extraction as pkg-info.sh.
+# Installed version — read straight from opkg's status file, exactly like
+# pkg-info.sh. `opkg status` takes /var/lock/opkg.lock even read-only, and
+# refresh-index.sh's background `opkg update` holds it for ~18s on load; an
+# empty installed version would then wrongly render an identical release as
+# an upgrade (or nothing at all). The file itself is always readable.
 installed=""
 if command -v apk >/dev/null 2>&1; then
 	installed=$(apk list -I "$PKG" 2>/dev/null | awk -v p="$PKG" '
 		$1 ~ "^" p "-" { sub("^" p "-", "", $1); print $1; exit }
 	')
 elif command -v opkg >/dev/null 2>&1; then
-	installed=$(opkg status "$PKG" 2>/dev/null | awk -F': ' '$1=="Version"{print $2; exit}')
+	installed=$(awk -v p="$PKG" '
+		$1=="Package:" { f = ($2 == p) }
+		f && $1=="Version:" { print $2; exit }
+	' /usr/lib/opkg/status 2>/dev/null)
 fi
 
 # dae/daed release versions are date-stamped; keep the same sanity filter as
@@ -76,7 +82,21 @@ esac
 # Tags API) because we need the asset list to download packages from.
 # A fetch that yields nothing (network/API failure) exits 1 so the caller can
 # say "check failed" instead of silently claiming the build is up to date.
-api="$(fetch_text "$(with_proxy "https://api.github.com/repos/${UPDATE_REPO}/releases/latest")")"
+#
+# Direct first, then the configured mirror: mirrors prefix the path
+# ("proxy/https://api.github.com/...") and the default one answers that with
+# 404, so going through it unconditionally always looked like "check failed".
+api_url="https://api.github.com/repos/${UPDATE_REPO}/releases/latest"
+api="$(fetch_text "$api_url")"
+case "$api" in
+	*browser_download_url*) ;;
+	*) # Direct API unusable (blocked/rate-limited/error payload): retry via mirror.
+	   proxied="$(fetch_text "$(with_proxy "$api_url")")"
+	   case "$proxied" in
+		   *browser_download_url*) api="$proxied" ;;
+	   esac
+	   ;;
+esac
 [ -n "$api" ] || { printf '\t\n'; exit 1; }
 
 # Find the matching asset. luci-app-daede is arch-independent ("_all" ipk;

@@ -301,6 +301,9 @@ msgstr ""
 msgid "up to date"
 msgstr ""
 
+msgid "checking release feed…"
+msgstr ""
+
 msgid "not installed via package manager"
 msgstr ""
 

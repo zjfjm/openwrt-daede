@@ -311,6 +311,9 @@ msgstr "最新"
 msgid "up to date"
 msgstr "已是最新"
 
+msgid "checking release feed…"
+msgstr "正在检查发布源…"
+
 msgid "not installed via package manager"
 msgstr "非包管理器安装"
 

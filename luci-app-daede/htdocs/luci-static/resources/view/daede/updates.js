@@ -237,18 +237,16 @@ return view.extend({
 			return runJobArgs('upgrade-asset.sh', [pkg, url], btn, '/tmp/luci-app-daede.asset-' + pkg + '.log');
 		};
 
-		// Manually trigger the GitHub release probe and re-render the rows so a
-		// newly published build shows up without waiting for the next poll.
 		const checkBtn = E('button', { 'class': 'dd-up-btn dd-up-btn-primary', 'type': 'button' }, _('Check Updates'));
 		const checkSrc = E('span', { 'class': 'dd-up-src' }, '');
+		// Manually trigger a full refresh: refresh() re-runs the GitHub
+		// release probe in its second phase and repaints the rows when it
+		// lands, so awaiting refresh() is all this needs (the old version
+		// probed every release twice per click).
 		const doCheck = function() {
 			checkBtn.disabled = true;
 			checkBtn.textContent = '...';
-			return Promise.all(corePkgs.concat(['luci-app-daede']).map(function(pkg) {
-				return probeRelease(pkg);
-			})).then(function() {
-				return refresh();
-			}).catch(function() {}).finally(function() {
+			return refresh(true).catch(function() {}).finally(function() {
 				checkBtn.disabled = false;
 				checkBtn.textContent = _('Check Updates');
 			});
@@ -377,34 +375,19 @@ return view.extend({
 			});
 		});
 
-		const refresh = function() {
-			const probes = [
-				probeFile(DATA_PATHS.geoip),
-				probeFile(DATA_PATHS.geosite),
-				probeFile(HEALTH_PATHS.btf),
-				probeFile(HEALTH_PATHS.btfDetached),
-				backend.detectRunning(),
-				backend.serviceStatus(ctx.name)
-			];
+		// GitHub release results, keyed by package, each carrying a `ts`
+		// timestamp so the poll can throttle api.github.com traffic (the old
+		// code hit it 3× every 5s, which rate-limits a page into constant
+		// "release check failed" rows). Filled in by refresh()'s phase 2.
+		const releasePkgs = corePkgs.concat(['luci-app-daede']);
+		const releaseCache = {};
+		const releaseBusy = {};
+		const RELEASE_TTL = 60000;
 
-			corePkgs.forEach(function(pkg) {
-				probes.push(probePkg(pkg));
-			});
-			probes.push(probePkg('luci-app-daede'));
-
-			// GitHub release probe for every package row. check-update.sh is
-			// cheap (one API call per package) and respects the configured
-			// update_repo, so a fork's builds show up here automatically.
-			const releasePkgs = corePkgs.concat(['luci-app-daede']);
-			const releaseOffset = probes.length;
-			releasePkgs.forEach(function(pkg) {
-				probes.push(probeRelease(pkg));
-			});
-
-			if (ctx.backend.useNetns)
-				probes.push(probeFile(HEALTH_PATHS.netns));
-
-			return Promise.all(probes).then(function(r) {
+		// Draw every row from the local probe results plus whatever the release
+		// cache holds at this moment — empty on refresh()'s first pass, so the
+		// package rows say "checking release feed…" instead of guessing.
+		const renderAll = function(r, releaseInfo) {
 				const geoip = r[0], geosite = r[1], btf = r[2], btfDetached = r[3], running = r[4], service = r[5];
 				const pkgOffset = 6;
 				const coreInfo = {};
@@ -412,11 +395,7 @@ return view.extend({
 					coreInfo[pkg] = r[pkgOffset + i];
 				});
 				const luci = r[pkgOffset + corePkgs.length];
-				const releaseInfo = {};
-				releasePkgs.forEach(function(pkg, i) {
-					releaseInfo[pkg] = r[releaseOffset + i];
-				});
-				const ns = r[releaseOffset + releasePkgs.length];
+				const ns = ctx.backend.useNetns ? r[r.length - 1] : null;
 
 				// show which repo the release probe consulted
 				const repo = uci.get('daede', 'config', 'update_repo') || 'zjfjm/openwrt-daede';
@@ -450,6 +429,10 @@ return view.extend({
 			}).concat([
 				{ k: 'luci-app-daede', name: 'luci-app-daede', r: luci, rel: releaseInfo['luci-app-daede'] }
 			]).forEach(function(entry) {
+				// No release entry yet = refresh() phase 1 (local reads only)
+				// hasn't finished its GitHub probes; say "checking" instead of
+				// claiming "up to date" from an empty cache.
+				const pending = !entry.rel;
 				const rel = entry.rel || { latest: '', asset: '', ok: true };
 				// Prefer the package feed (R2) when it offers a strictly newer
 				// build; otherwise fall back to a release asset from the
@@ -463,16 +446,20 @@ return view.extend({
 				const checkFail = rel.ok === false && !feedNewer && !releaseNewer;
 
 				let btn, meta;
-				if (checkFail) {
+				if (feedNewer) {
+					meta = _('installed') + ': ' + entry.r.installed + ' → ' + _('latest') + ': ' + entry.r.latest;
+					btn = E('button', { 'class': 'dd-up-btn dd-up-btn-primary', 'type': 'button' }, _('Upgrade'));
+					btn.addEventListener('click', function() { upgradePkg(entry.k, btn); });
+				} else if (pending) {
+					// Local facts are known; only the GitHub verdict is missing.
+					meta = _('installed') + ': ' + (entry.r.installed || _('unknown')) + ' · ' + _('checking release feed…');
+					btn = E('button', { 'class': 'dd-up-btn', 'type': 'button', 'disabled': true }, _('Upgrade'));
+				} else if (checkFail) {
 					meta = _('installed') + ': ' + (entry.r.installed || _('unknown')) + ' · ' + _('GitHub release check failed — set the GitHub Proxy and retry');
 					btn = E('button', { 'class': 'dd-up-btn', 'type': 'button', 'disabled': true }, _('Upgrade'));
 				} else if (!entry.r.installed && !rel.latest) {
 					meta = _('not installed via package manager');
 					btn = E('button', { 'class': 'dd-up-btn', 'type': 'button', 'disabled': true }, _('Unavailable'));
-				} else if (feedNewer) {
-					meta = _('installed') + ': ' + entry.r.installed + ' → ' + _('latest') + ': ' + entry.r.latest;
-					btn = E('button', { 'class': 'dd-up-btn dd-up-btn-primary', 'type': 'button' }, _('Upgrade'));
-					btn.addEventListener('click', function() { upgradePkg(entry.k, btn); });
 				} else if (releaseNewer) {
 					meta = _('installed') + ': ' + (entry.r.installed || _('unknown')) + ' → ' + _('release') + ': ' + rel.latest + ' (' + _('from GitHub release') + ')';
 					btn = E('button', { 'class': 'dd-up-btn dd-up-btn-primary', 'type': 'button' }, _('Upgrade'));
@@ -490,8 +477,8 @@ return view.extend({
 					btn = E('button', { 'class': 'dd-up-btn', 'type': 'button', 'disabled': true }, _('Upgrade'));
 				}
 				pkgBody.appendChild(mkRow(
-					checkFail ? '⚠' : ((feedNewer || releaseNewer) ? '↑' : (entry.r.installed ? '✓' : '✗')),
-					checkFail ? 'dd-up-warn' : ((feedNewer || releaseNewer) ? 'dd-up-new' : (entry.r.installed ? 'dd-up-ok' : 'dd-up-err')),
+					(feedNewer || releaseNewer) ? '↑' : (pending ? '⋯' : (checkFail ? '⚠' : (entry.r.installed ? '✓' : '✗'))),
+					(feedNewer || releaseNewer) ? 'dd-up-new' : (pending ? 'dd-up-warn' : (checkFail ? 'dd-up-warn' : (entry.r.installed ? 'dd-up-ok' : 'dd-up-err'))),
 					entry.name,
 					meta,
 					btn
@@ -543,6 +530,61 @@ return view.extend({
 				} else if (ctx.backend.useNetns) {
 					healthBody.appendChild(mkRow('✓', 'dd-up-ok', _('netns daens'), HEALTH_PATHS.netns + ' · ' + _('clean')));
 				}
+		};
+
+		// Two phases. Phase 1 = local probes only, and paints immediately:
+		// pkg-info.sh reads opkg's own database files, so the installed
+		// versions answer in milliseconds even while refresh-index.sh's
+		// background `opkg update` holds the opkg lock — the old single
+		// Promise.all held the whole page (GeoIP sizes, service state,
+		// installed versions) behind the slow GitHub probe for seconds.
+		// Phase 2 = GitHub release probes (throttled to RELEASE_TTL per
+		// package so the 5s poll cannot rate-limit api.github.com), then a
+		// repaint of the rows that depend on them.
+		const refresh = function(force) {
+			const probes = [
+				probeFile(DATA_PATHS.geoip),
+				probeFile(DATA_PATHS.geosite),
+				probeFile(HEALTH_PATHS.btf),
+				probeFile(HEALTH_PATHS.btfDetached),
+				backend.detectRunning(),
+				backend.serviceStatus(ctx.name)
+			];
+			corePkgs.forEach(function(pkg) {
+				probes.push(probePkg(pkg));
+			});
+			probes.push(probePkg('luci-app-daede'));
+			if (ctx.backend.useNetns)
+				probes.push(probeFile(HEALTH_PATHS.netns));
+
+			return Promise.all(probes).then(function(r) {
+				return renderAll(r, releaseCache);
+			}).then(function() {
+				const now = Date.now();
+				let dirty = false;
+				return Promise.all(releasePkgs.map(function(pkg) {
+					const hit = releaseCache[pkg];
+					if (!force && hit && (now - (hit.ts || 0)) < RELEASE_TTL)
+						return;
+					if (releaseBusy[pkg])
+						return;
+					dirty = true;
+					releaseBusy[pkg] = true;
+					return probeRelease(pkg).then(function(res) {
+						res.ts = Date.now();
+						releaseCache[pkg] = res;
+					}).finally(function() {
+						releaseBusy[pkg] = false;
+					});
+				})).then(function() {
+					return dirty;
+				});
+			}).then(function(dirty) {
+				if (!dirty)
+					return;
+				return Promise.all(probes).then(function(r) {
+					return renderAll(r, releaseCache);
+				});
 			});
 		};
 
@@ -600,8 +642,8 @@ return view.extend({
 		// visible way to set the proxy the rows silently claim "up to date".
 		const proxySettings = (function() {
 			const proxy0 = uci.get('daede', 'config', 'github_proxy') || '';
-			const input = E('input', { 'type': 'text', 'placeholder': 'https://gh.845945.xyz/' });
-			input.value = proxy0 || 'https://gh.845945.xyz/';
+			const input = E('input', { 'type': 'text', 'placeholder': 'https://ghfast.top/' });
+			input.value = proxy0 || 'https://ghfast.top/';
 
 			const saveBtn = E('button', { 'class': 'dd-up-btn dd-up-btn-primary', 'type': 'button' }, _('Save'));
 			saveBtn.addEventListener('click', function() {
