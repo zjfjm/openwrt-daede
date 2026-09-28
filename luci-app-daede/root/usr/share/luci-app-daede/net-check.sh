@@ -58,14 +58,21 @@ parse_lat() {
 		}' "$1"
 }
 
-# ---- IP services (4 concurrent) ----
+# ---- IP services (4 concurrent), then wait before latency phase ----
 curl -SsL -m 10 -A "$UA" "https://whois.pconline.com.cn/ipJson.jsp?json=true&z=$Z" -o "$TMP/pcol" 2>/dev/null &
 curl -SsL -m 10 -A "$UA" "http://myip.ipip.net?z=$Z" -o "$TMP/ipip" 2>/dev/null &
 curl -SsL -m 10 -A "$UA" "https://api.ip.sb/geoip?z=$Z" -o "$TMP/ipsb" 2>/dev/null &
 curl -SsL -m 10 -A "$UA" "https://api.ipify.org/?format=json&z=$Z" -o "$TMP/ipify" 2>/dev/null &
+wait
 
+# ---- website latency: 4 domains x 2 urls (favicon first, bare url fallback)
+# Throttled to 2 domains (4 curls) per wave like OpenClash's
+# MAX_CONCURRENT_DOMAINS=2: an all-at-once blast queues TLS handshakes on the
+# router CPU and inflates appconnect ~3x (baidu: ~220ms sequential vs ~760ms
+# with 8 concurrent curls), which made CN-direct targets look proxied.
 DOMAINS="www.baidu.com|s1.music.126.net/style|github.com|www.youtube.com"
 n=0
+b=0
 OLDIFS=$IFS
 IFS='|'
 for d in $DOMAINS; do
@@ -76,9 +83,14 @@ for d in $DOMAINS; do
 	curl -sI -m 10 --connect-timeout 3 -A "$UA" \
 		-w '%{http_code},%{time_total},%{time_connect},%{time_appconnect}' \
 		-o /dev/null "https://$d" >"$TMP/l$n.2" 2>/dev/null &
+	b=$((b + 1))
+	if [ "$b" -ge 2 ]; then
+		wait
+		b=0
+	fi
 done
-IFS=$OLDIFS
 wait
+IFS=$OLDIFS
 
 # ---- emit IP results ----
 if [ -s "$TMP/pcol" ]; then
