@@ -1210,6 +1210,9 @@ msgstr "更新源已保存。"
 msgid "GitHub Proxy saved."
 msgstr "GitHub 代理已保存。"
 
+msgid "GitHub API rate limited — wait a few minutes and retry"
+msgstr "GitHub API 已限流 —— 请几分钟后重试"
+
 msgid "GitHub release check failed — set the GitHub Proxy and retry"
 msgstr "GitHub 发布检查失败 —— 请设置 GitHub 代理后重试"
 

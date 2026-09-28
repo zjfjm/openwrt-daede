@@ -16,6 +16,38 @@ case "$PKG" in
 	*) printf '\t\n'; exit 64 ;;
 esac
 
+# Throttle: one real API check per package every 30 minutes, server-side so
+# it holds across page reloads, tabs and devices. The Updates page gets
+# opened constantly while the unauthenticated GitHub API allows only
+# 60 requests/hour — opening the page therefore runs a check at most once
+# per 30 minutes, and any reopen inside that window just replays the cached
+# result from /tmp. The second argument "--force" (the Check Updates
+# button) bypasses the window; "--real" is this script's own re-entry
+# marker for the uncached run, whose stdout is captured and cached.
+STAMP="/tmp/luci-app-daede.chk.${PKG}.ts"
+COUT="/tmp/luci-app-daede.chk.${PKG}.out"
+CCODE="/tmp/luci-app-daede.chk.${PKG}.code"
+if [ "$2" != "--force" ] && [ "$2" != "--real" ] && [ -f "$STAMP" ] && [ -s "$COUT" ]; then
+	stamp="$(cat "$STAMP" 2>/dev/null)"
+	case "$stamp" in ''|*[!0-9]*) stamp=0 ;; esac
+	age=$(( $(date +%s) - stamp ))
+	if [ "$age" -ge 0 ] && [ "$age" -lt 1800 ]; then
+		cat "$COUT"
+		code="$(cat "$CCODE" 2>/dev/null)"
+		case "$code" in ''|*[!0-9]*) code=0 ;; esac
+		exit "$code"
+	fi
+fi
+if [ "$2" != "--real" ]; then
+	out="$(sh "$0" "$PKG" --real)"
+	rc=$?
+	printf '%s\n' "$out"
+	printf '%s' "$out" > "$COUT"
+	printf '%s' "$rc" > "$CCODE"
+	date +%s > "$STAMP"
+	exit "$rc"
+fi
+
 # GitHub repo hosting release assets for this build. Defaults to this fork so
 # the button pulls our own builds; set daede.config.update_repo to point it at
 # another fork ("user/repo") if needed.
@@ -87,7 +119,45 @@ esac
 # ("proxy/https://api.github.com/...") and the default one answers that with
 # 404, so going through it unconditionally always looked like "check failed".
 api_url="https://api.github.com/repos/${UPDATE_REPO}/releases/latest"
-api="$(fetch_text "$api_url")"
+
+# Conditional request against a /tmp copy of the previous response. A 304
+# from GitHub does NOT count against the unauthenticated rate limit
+# (60 requests/hour), so the Updates page can keep polling without burning
+# the budget — previously an open tab exhausted it in ~20 minutes and every
+# row flipped to "release check failed" for the rest of the hour. A 200
+# stores the body plus a fresh ETag for the next round; the cache key
+# follows the configured repo so switching repos never serves stale data.
+API_TAG="$(printf '%s' "$UPDATE_REPO" | tr -c 'A-Za-z0-9._-' '_')"
+API_CACHE="/tmp/luci-app-daede.api.${API_TAG}"
+api=""
+if command -v curl >/dev/null 2>&1; then
+	etag=""
+	[ -f "$API_CACHE.etag" ] && etag="$(cat "$API_CACHE.etag" 2>/dev/null)"
+	hdr="/tmp/luci-app-daede.hdr.$$"
+	if [ -n "$etag" ]; then
+		code="$(curl -sS --max-time 20 -D "$hdr" -o "$API_CACHE.tmp" -H "If-None-Match: $etag" -w '%{http_code}' "$api_url" 2>/dev/null)"
+	else
+		code="$(curl -sS --max-time 20 -D "$hdr" -o "$API_CACHE.tmp" -w '%{http_code}' "$api_url" 2>/dev/null)"
+	fi
+	case "$code" in
+		200)
+			if api="$(cat "$API_CACHE.tmp" 2>/dev/null)" && [ -n "$api" ] && printf '%s' "$api" > "$API_CACHE.body"; then
+				new_etag="$(grep -i '^etag:' "$hdr" 2>/dev/null | sed 's/^[Ee][Tt][Aa][Gg]: *//' | tr -d '\r')"
+				[ -n "$new_etag" ] && printf '%s' "$new_etag" > "$API_CACHE.etag"
+			fi
+			;;
+		304) # Not modified: reuse the cached body (request was free).
+			api="$(cat "$API_CACHE.body" 2>/dev/null)"
+			;;
+		*)   # Error payload (rate limit JSON etc) — classified below.
+			api="$(cat "$API_CACHE.tmp" 2>/dev/null)"
+			;;
+	esac
+	rm -f "$hdr" "$API_CACHE.tmp"
+else
+	api="$(fetch_text "$api_url")"
+fi
+
 case "$api" in
 	*browser_download_url*) ;;
 	*) # Direct API unusable (blocked/rate-limited/error payload): retry via mirror.
@@ -97,7 +167,21 @@ case "$api" in
 	   esac
 	   ;;
 esac
-[ -n "$api" ] || { printf '\t\n'; exit 1; }
+
+# Classify the failure: rate limiting is not a proxy problem, so it gets
+# its own exit code (2) and UI message instead of "set the GitHub Proxy
+# and retry" — a proxy cannot lift an IP-level limit here.
+case "$api" in
+	*browser_download_url*) ;;
+	*rate\ limit*|*rate-limit*)
+		printf '\t\n'
+		exit 2
+		;;
+	*)
+		printf '\t\n'
+		exit 1
+		;;
+esac
 
 # Find the matching asset. luci-app-daede is arch-independent ("_all" ipk;
 # its noarch apk is still published once per SDK/arch); dae/daed need the

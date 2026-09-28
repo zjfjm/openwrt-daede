@@ -931,6 +931,9 @@ msgstr ""
 msgid "GitHub Proxy saved."
 msgstr ""
 
+msgid "GitHub API rate limited — wait a few minutes and retry"
+msgstr ""
+
 msgid "GitHub release check failed — set the GitHub Proxy and retry"
 msgstr ""
 

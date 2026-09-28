@@ -142,12 +142,19 @@ function probePkg(pkg) {
 // the local build is already newest) and ok is false when the feed could not
 // be reached or parsed — the caller must show a check failure, not "up to
 // date", in that case.
-function probeRelease(pkg) {
-	return fs.exec('/usr/share/luci-app-daede/check-update.sh', [pkg]).then(function(res) {
+function probeRelease(pkg, force) {
+	return fs.exec('/usr/share/luci-app-daede/check-update.sh',
+		force ? [pkg, '--force'] : [pkg]).then(function(res) {
 		const out = (res.stdout || '').trim().split('\t');
-		return { latest: out[0] || '', asset: out[1] || '', ok: !!(res && res.code === 0) };
+		return {
+			latest: out[0] || '',
+			asset: out[1] || '',
+			ok: !!(res && res.code === 0),
+			// 2 = GitHub API rate limited (distinct from a proxy/network failure)
+			rc: (res && typeof res.code === 'number') ? res.code : -1
+		};
 	}).catch(function() {
-		return { latest: '', asset: '', ok: false };
+		return { latest: '', asset: '', ok: false, rc: -1 };
 	});
 }
 
@@ -239,14 +246,12 @@ return view.extend({
 
 		const checkBtn = E('button', { 'class': 'dd-up-btn dd-up-btn-primary', 'type': 'button' }, _('Check Updates'));
 		const checkSrc = E('span', { 'class': 'dd-up-src' }, '');
-		// Manually trigger a full refresh: refresh() re-runs the GitHub
-		// release probe in its second phase and repaints the rows when it
-		// lands, so awaiting refresh() is all this needs (the old version
-		// probed every release twice per click).
+		// Check Updates: force a real release probe, bypassing the script's
+		// 30-minute cache (phase 1 repaints first, phase 2 follows).
 		const doCheck = function() {
 			checkBtn.disabled = true;
 			checkBtn.textContent = '...';
-			return refresh(true).catch(function() {}).finally(function() {
+			return refresh({ release: true, force: true }).catch(function() {}).finally(function() {
 				checkBtn.disabled = false;
 				checkBtn.textContent = _('Check Updates');
 			});
@@ -375,14 +380,14 @@ return view.extend({
 			});
 		});
 
-		// GitHub release results, keyed by package, each carrying a `ts`
-		// timestamp so the poll can throttle api.github.com traffic (the old
-		// code hit it 3× every 5s, which rate-limits a page into constant
-		// "release check failed" rows). Filled in by refresh()'s phase 2.
+		// GitHub release results, keyed by package, filled in by refresh()'s
+		// phase 2. That phase only runs on page open or Check Updates — never
+		// from the 5s poll — and check-update.sh replays its cached result
+		// for 30 minutes, so reopening the page inside that window costs no
+		// API requests at all (the unauthenticated API allows 60/hour).
 		const releasePkgs = corePkgs.concat(['luci-app-daede']);
 		const releaseCache = {};
 		const releaseBusy = {};
-		const RELEASE_TTL = 60000;
 
 		// Draw every row from the local probe results plus whatever the release
 		// cache holds at this moment — empty on refresh()'s first pass, so the
@@ -455,7 +460,10 @@ return view.extend({
 					meta = _('installed') + ': ' + (entry.r.installed || _('unknown')) + ' · ' + _('checking release feed…');
 					btn = E('button', { 'class': 'dd-up-btn', 'type': 'button', 'disabled': true }, _('Upgrade'));
 				} else if (checkFail) {
-					meta = _('installed') + ': ' + (entry.r.installed || _('unknown')) + ' · ' + _('GitHub release check failed — set the GitHub Proxy and retry');
+					meta = _('installed') + ': ' + (entry.r.installed || _('unknown')) + ' · ' +
+						(rel.rc === 2
+							? _('GitHub API rate limited — wait a few minutes and retry')
+							: _('GitHub release check failed — set the GitHub Proxy and retry'));
 					btn = E('button', { 'class': 'dd-up-btn', 'type': 'button', 'disabled': true }, _('Upgrade'));
 				} else if (!entry.r.installed && !rel.latest) {
 					meta = _('not installed via package manager');
@@ -538,10 +546,12 @@ return view.extend({
 		// background `opkg update` holds the opkg lock — the old single
 		// Promise.all held the whole page (GeoIP sizes, service state,
 		// installed versions) behind the slow GitHub probe for seconds.
-		// Phase 2 = GitHub release probes (throttled to RELEASE_TTL per
-		// package so the 5s poll cannot rate-limit api.github.com), then a
-		// repaint of the rows that depend on them.
-		const refresh = function(force) {
+		// Phase 2 = GitHub release probes, but only when opts.release is set
+		// (page open / Check Updates — the 5s poll never triggers it); the
+		// script itself serves a cached result for 30 minutes, and
+		// opts.force (the button) bypasses that window, then a repaint of
+		// the rows that depend on the release info.
+		const refresh = function(opts) {
 			const probes = [
 				probeFile(DATA_PATHS.geoip),
 				probeFile(DATA_PATHS.geosite),
@@ -560,18 +570,15 @@ return view.extend({
 			return Promise.all(probes).then(function(r) {
 				return renderAll(r, releaseCache);
 			}).then(function() {
-				const now = Date.now();
+				if (!opts || !opts.release)
+					return false;
 				let dirty = false;
 				return Promise.all(releasePkgs.map(function(pkg) {
-					const hit = releaseCache[pkg];
-					if (!force && hit && (now - (hit.ts || 0)) < RELEASE_TTL)
-						return;
 					if (releaseBusy[pkg])
 						return;
 					dirty = true;
 					releaseBusy[pkg] = true;
-					return probeRelease(pkg).then(function(res) {
-						res.ts = Date.now();
+					return probeRelease(pkg, opts.force).then(function(res) {
 						releaseCache[pkg] = res;
 					}).finally(function() {
 						releaseBusy[pkg] = false;
@@ -589,7 +596,7 @@ return view.extend({
 		};
 
 		poll.add(refresh);
-		refresh();
+		refresh({ release: true });
 
 		// === Release feed source (which GitHub repo to check for updates) ===
 		const feedSettings = (function() {
