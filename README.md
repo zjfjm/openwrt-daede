@@ -164,10 +164,26 @@ dae / daed 用 CO-RE eBPF，运行时需要内核 BTF（`/sys/kernel/btf/vmlinux
 
 - OpenWrt 24.10+（推荐 25.x）
 
+## 更新记录
+
+### 2026-09-28 · 设置页新增「IP 与访问检查」卡片
+
+- **设置页（服务 → daede → 设置）新增「IP 与访问检查」卡片**，界面与交互移植自 OpenClash 的 `myip.htm`（见文末开源申明）：
+  - **IP 地址**：PConline / IPIP.NET / IP.SB / IPIFY 四个服务的出口 IP 与归属地（PConline GBK 归属地由前端解码）；眼睛图标一键遮蔽（IP 显示为 `***.***.***.***` 并暂停 IP 轮询）
+  - **访问检查**：百度 / 网易云音乐 / GitHub / YouTube 四站的连接状态、延迟毫秒数与 10 次滚动 sparkline 延迟曲线
+  - **模式切换**：路由器模式 ↔ 浏览器模式（插头图标切换）。路由器模式经 `fs.exec` 执行 `/usr/share/luci-app-daede/net-check.sh`，测的是「客户端经旁路由的真实体验」；浏览器模式在前端直测（JSONP / fetch / 图片计时），与 OpenClash 行为一致
+  - 支持刷新按钮立即重测，20–50s / 50–80s 随机间隔自动轮询，离开页面自动清理定时器
+- **新增 `net-check.sh`**：4 个出口 IP + 8 个站点 URL 并行探测，输出 NDJSON；经 rpcd ACL 授权 LuCI 前端 `file.exec` 调用
+- **探测限流修复**：脚本分两阶段执行、每波最多 4 并发（对齐 OpenClash 的 `MAX_CONCURRENT_DOMAINS=2`）。实测 12 路全并发会在弱路由 CPU 上排队，把**直连**站点的 TLS 握手耗时虚高约 3 倍（百度 ~220ms 被撑到 ~760ms，看起来像走了代理——实为并发排队，`time_connect` 证明百度始终直连）
+- 界面词条（zh_Hans / zh-cn）同步更新，`PKG_RELEASE` 升至 7
+
 ## 致谢
 
 - [dae](https://github.com/daeuniverse/dae) — 高性能透明代理
 - [daed](https://github.com/daeuniverse/daed) — dae 的 Dashboard 增强版
+- [usque](https://github.com/Diniboy1123/usque) — Cloudflare WARP MASQUE 客户端上游项目
+- [usque-custom-pro](https://github.com/KJGX66F/usque-custom-pro) — 感谢 [KJGX66F](https://github.com/KJGX66F) 提供的 WARP / MASQUE 可视化注册、配置生成与多客户端转换工具
+- [OpenClash](https://github.com/vernesong/OpenClash) — 设置页「IP 与访问检查」卡片的界面、探测逻辑与样式移植自其 `luasrc/view/openclash/myip.htm`、`luasrc/controller/openclash.lua`（`action_myip_check` / `action_website_check`）与 `oc.css`（**GPL-3.0，© vernesong/OpenClash**），移植来源在对应源文件头部均有声明
 
 ## 许可证
 
