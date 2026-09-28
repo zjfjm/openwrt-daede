@@ -1208,3 +1208,53 @@ msgstr ""
 
 msgid "daed request timed out"
 msgstr ""
+
+# ---- netcheck.js: IP & access check card ----
+
+msgid "IP & Access Check"
+msgstr ""
+
+msgid "IP Address"
+msgstr ""
+
+msgid "Access Check"
+msgstr ""
+
+msgid "Hide IP"
+msgstr ""
+
+msgid "Show IP"
+msgstr ""
+
+msgid "Router Mode"
+msgstr ""
+
+msgid "Browser Mode"
+msgstr ""
+
+msgid "Refresh"
+msgstr ""
+
+msgid "Baidu Search"
+msgstr ""
+
+msgid "NetEase Music"
+msgstr ""
+
+msgid "Access Normal"
+msgstr ""
+
+msgid "Access Timed Out"
+msgstr ""
+
+msgid "Access Denied"
+msgstr ""
+
+msgid "Testing..."
+msgstr ""
+
+msgid "Querying..."
+msgstr ""
+
+msgid "Timeout"
+msgstr ""

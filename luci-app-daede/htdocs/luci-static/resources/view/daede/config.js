@@ -7,6 +7,7 @@
 'require view.daede.backend as backend';
 'require view.daede.styles as styles';
 'require view.daede.widgets as widgets';
+'require view.daede.netcheck as netcheck';
 'require view.daede.dae as daeView';
 'require view.daede.daed as daedView';
 
@@ -58,7 +59,7 @@ return view.extend({
 				.then(function(nextRoot) {
 					const current = document.querySelector('.dd-config-page');
 					if (!current) return;
-					Array.prototype.forEach.call(current.querySelectorAll('.dd-status-card'), function(card) {
+					Array.prototype.forEach.call(current.querySelectorAll('.dd-status-card, .dd-netcheck-card'), function(card) {
 						if (card._ddCleanup) card._ddCleanup();
 					});
 					current.replaceWith(nextRoot);
@@ -75,6 +76,7 @@ return view.extend({
 		const children = [
 			E('style', {}, styles.CSS),
 			widgets.renderStatusCard(ctx, listenAddr),
+			netcheck.renderNetCheckCard(),
 			widgets.renderBackendSwitcher(ctx, redrawBackend, self._backendHint)
 		].filter(function(node) { return !!node; });
 

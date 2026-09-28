@@ -36,7 +36,8 @@
 				"/tmp/luci-app-daede.asset-daed.log": [ "read" ],
 				"/tmp/luci-app-daede.asset-luci-app-daede.log": [ "read" ],
 			"/usr/share/luci-app-daede/refresh-index.sh": [ "exec" ],
-			"/usr/share/luci-app-daede/proxy-check.sh": [ "exec" ]
+			"/usr/share/luci-app-daede/proxy-check.sh": [ "exec" ],
+			"/usr/share/luci-app-daede/net-check.sh": [ "exec" ]
 		},
 		"ubus": {
 			"service": [ "list" ]

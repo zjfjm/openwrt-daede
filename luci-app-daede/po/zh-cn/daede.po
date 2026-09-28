@@ -1434,3 +1434,53 @@ msgstr "dae + daed"
 
 msgid "daed request timed out"
 msgstr "访问 daed 超时"
+
+# ---- netcheck.js: IP & access check card ----
+
+msgid "IP & Access Check"
+msgstr "IP 与访问检查"
+
+msgid "IP Address"
+msgstr "IP 地址"
+
+msgid "Access Check"
+msgstr "访问检查"
+
+msgid "Hide IP"
+msgstr "隐藏 IP 地址"
+
+msgid "Show IP"
+msgstr "显示 IP 地址"
+
+msgid "Router Mode"
+msgstr "路由器模式"
+
+msgid "Browser Mode"
+msgstr "浏览器模式"
+
+msgid "Refresh"
+msgstr "刷新"
+
+msgid "Baidu Search"
+msgstr "百度搜索"
+
+msgid "NetEase Music"
+msgstr "网易云音乐"
+
+msgid "Access Normal"
+msgstr "连接正常"
+
+msgid "Access Timed Out"
+msgstr "访问超时"
+
+msgid "Access Denied"
+msgstr "无法访问"
+
+msgid "Testing..."
+msgstr "检测中..."
+
+msgid "Querying..."
+msgstr "查询中..."
+
+msgid "Timeout"
+msgstr "超时"
