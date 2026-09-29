@@ -7,6 +7,10 @@ name: Assemble daed source
 on:
   workflow_dispatch:
   push:
+    # Only the working branch triggers a re-assemble; syncing to main must not
+    # re-trigger it (a duplicate run would float go.mod deps to a new tarball
+    # and diverge daed/Makefile from the tag being released).
+    branches: ['feat/masque-dialer']
     paths:
       - 'ci/patches/daed-web/**'
 
