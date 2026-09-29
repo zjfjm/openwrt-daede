@@ -93,6 +93,10 @@ return view.extend({
 		return Promise.all(children.map(function(child) {
 			return child && child.then ? child : Promise.resolve(child);
 		})).then(function(nodes) {
+			/* every child (incl. the daed/dae settings form) has resolved —
+			   let the netcheck card kick off its seconds-long probes now,
+			   not during render, so they never hold up the loading overlay */
+			nodes.forEach(function(n) { if (n && n._ddStart) n._ddStart(); });
 			return E('div', { 'class': 'dd-wrap dd-config-page' }, nodes.filter(function(n) { return !!n; }));
 		});
 	},

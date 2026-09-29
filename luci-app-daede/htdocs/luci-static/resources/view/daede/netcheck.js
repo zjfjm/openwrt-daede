@@ -793,10 +793,23 @@ function renderNetCheckCard() {
 	else
 		updateEyeIcon(true);
 
-	if (useRouterMode)
-		initRouterMode();
-	else
-		initBrowserMode();
+	/* Probes start only when the hosting view says the page is up: config.js
+	   calls card._ddStart() after every child resolved and just before LuCI
+	   swaps the loading overlay out. net-check.sh takes seconds of TLS/CPU
+	   work, so firing it during render let it contend with the view's own
+	   initial RPCs and stretched "Loading view..." into seconds — the card
+	   now paints with placeholders first and checks right after the page is
+	   on screen. User-triggered refresh/mode switches run eagerly. */
+	let started = false;
+	const start = function() {
+		if (started || disposed) return;
+		started = true;
+		if (useRouterMode)
+			initRouterMode();
+		else
+			initBrowserMode();
+	};
+	card._ddStart = start;
 
 	card._ddCleanup = function() {
 		disposed = true;
