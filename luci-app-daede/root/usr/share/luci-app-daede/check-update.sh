@@ -31,10 +31,16 @@ if [ "$2" != "--force" ] && [ "$2" != "--real" ] && [ -f "$STAMP" ] && [ -s "$CO
 	case "$stamp" in ''|*[!0-9]*) stamp=0 ;; esac
 	age=$(( $(date +%s) - stamp ))
 	if [ "$age" -ge 0 ] && [ "$age" -lt 1800 ]; then
-		cat "$COUT"
 		code="$(cat "$CCODE" 2>/dev/null)"
 		case "$code" in ''|*[!0-9]*) code=0 ;; esac
-		exit "$code"
+		# Success and rate-limit results hold for the full window; a plain
+		# network/parse failure (rc=1) only holds for 60s — a transient
+		# blip or lost race must not pin "check failed" on a row for 30
+		# minutes while sibling rows show fresh data.
+		if [ "$code" = 0 ] || [ "$code" = 2 ] || [ "$age" -lt 60 ]; then
+			cat "$COUT"
+			exit "$code"
+		fi
 	fi
 fi
 if [ "$2" != "--real" ]; then
@@ -61,7 +67,7 @@ GH_PROXY="$(uci -q get daede.config.github_proxy)"
 
 fetch_text() {
 	if command -v curl >/dev/null 2>&1; then
-		curl -fsSL --max-time 20 "$1" 2>/dev/null
+		curl -fsSL --connect-timeout 8 --max-time 20 "$1" 2>/dev/null
 	elif command -v uclient-fetch >/dev/null 2>&1; then
 		uclient-fetch -qO- --timeout=20 "$1" 2>/dev/null
 	else
@@ -131,15 +137,29 @@ api=""
 if command -v curl >/dev/null 2>&1; then
 	etag=""
 	[ -f "$API_CACHE.etag" ] && etag="$(cat "$API_CACHE.etag" 2>/dev/null)"
+	# Per-PID temp files: the Updates page probes every package concurrently
+	# and they all share this repo cache — a shared .tmp let sibling curls
+	# interleave, so one probe read a truncated body and reported "check
+	# failed" while the others succeeded. The body itself is replaced by
+	# rename (atomic in /tmp) so readers always see a complete response.
 	hdr="/tmp/luci-app-daede.hdr.$$"
-	if [ -n "$etag" ]; then
-		code="$(curl -sS --max-time 20 -D "$hdr" -o "$API_CACHE.tmp" -H "If-None-Match: $etag" -w '%{http_code}' "$api_url" 2>/dev/null)"
-	else
-		code="$(curl -sS --max-time 20 -D "$hdr" -o "$API_CACHE.tmp" -w '%{http_code}' "$api_url" 2>/dev/null)"
-	fi
+	tmp="${API_CACHE}.tmp.$$"
+	try=0
+	while [ "$try" -lt 2 ]; do
+		try=$((try + 1))
+		if [ -n "$etag" ]; then
+			code="$(curl -sS --max-time 20 -D "$hdr" -o "$tmp" -H "If-None-Match: $etag" -w '%{http_code}' "$api_url" 2>/dev/null)"
+		else
+			code="$(curl -sS --max-time 20 -D "$hdr" -o "$tmp" -w '%{http_code}' "$api_url" 2>/dev/null)"
+		fi
+		case "$code" in
+			200|304) break ;;
+		esac
+	done
 	case "$code" in
 		200)
-			if api="$(cat "$API_CACHE.tmp" 2>/dev/null)" && [ -n "$api" ] && printf '%s' "$api" > "$API_CACHE.body"; then
+			if api="$(cat "$tmp" 2>/dev/null)" && [ -n "$api" ]; then
+				mv -f "$tmp" "$API_CACHE.body"
 				new_etag="$(grep -i '^etag:' "$hdr" 2>/dev/null | sed 's/^[Ee][Tt][Aa][Gg]: *//' | tr -d '\r')"
 				[ -n "$new_etag" ] && printf '%s' "$new_etag" > "$API_CACHE.etag"
 			fi
@@ -148,10 +168,10 @@ if command -v curl >/dev/null 2>&1; then
 			api="$(cat "$API_CACHE.body" 2>/dev/null)"
 			;;
 		*)   # Error payload (rate limit JSON etc) — classified below.
-			api="$(cat "$API_CACHE.tmp" 2>/dev/null)"
+			api="$(cat "$tmp" 2>/dev/null)"
 			;;
 	esac
-	rm -f "$hdr" "$API_CACHE.tmp"
+	rm -f "$hdr" "$tmp"
 else
 	api="$(fetch_text "$api_url")"
 fi
