@@ -136,8 +136,9 @@ function probePkg(pkg) {
 	});
 }
 
-// Ask the configured GitHub release feed (daede.config.update_repo) whether a
-// newer build exists than the one installed. Returns { latest, asset, ok }
+// Ask this project's GitHub release feed (fixed to zjfjm/openwrt-daede — this
+// is our own build, the Updates page does not offer switching feeds) whether
+// a newer build exists than the one installed. Returns { latest, asset, ok }
 // where asset is the download URL of the matching package file (empty when
 // the local build is already newest) and ok is false when the feed could not
 // be reached or parsed — the caller must show a check failure, not "up to
@@ -402,8 +403,8 @@ return view.extend({
 				const luci = r[pkgOffset + corePkgs.length];
 				const ns = ctx.backend.useNetns ? r[r.length - 1] : null;
 
-				// show which repo the release probe consulted
-				const repo = uci.get('daede', 'config', 'update_repo') || 'zjfjm/openwrt-daede';
+				// show which repo the release probe consulted (fixed to this project)
+				const repo = 'zjfjm/openwrt-daede';
 				checkSrc.textContent = _('release feed') + ': ' + repo;
 
 				// data rows
@@ -598,52 +599,6 @@ return view.extend({
 		poll.add(refresh);
 		refresh({ release: true });
 
-		// === Release feed source (which GitHub repo to check for updates) ===
-		const feedSettings = (function() {
-			const repo0 = uci.get('daede', 'config', 'update_repo') || 'zjfjm/openwrt-daede';
-
-			const repoInput = E('input', { 'type': 'text', 'placeholder': 'user/repo' });
-			repoInput.value = repo0;
-
-			const saveBtn = E('button', { 'class': 'dd-up-btn dd-up-btn-primary' }, _('Save'));
-			saveBtn.addEventListener('click', function() {
-				uci.set('daede', 'config', 'update_repo', repoInput.value.trim());
-				const orig = saveBtn.textContent;
-				saveBtn.disabled = true; saveBtn.textContent = '...';
-				uci.save().then(function() {
-					return uci.changes();
-				}).then(function(changes) {
-					if (changes && Object.keys(changes).length)
-						return uci.apply();
-				}).then(function() {
-					logPane.textContent = _('Release feed saved.');
-					logPane.classList.add('show');
-					ui.changes.init();
-					return doCheck();
-				}).catch(function(e) {
-					logPane.textContent = _('Save failed') + ': ' + (e && e.message ? e.message : e);
-					logPane.classList.add('show');
-				}).finally(function() {
-					saveBtn.disabled = false; saveBtn.textContent = orig;
-				});
-			});
-
-			const adv = E('div', { 'class': 'dd-adv dd-closed' }, [
-				E('div', { 'class': 'dd-adv-bar' }, [
-					E('span', {}, _('Release Feed')),
-					E('span', { 'class': 'dd-adv-chevron' }, '›')
-				]),
-				E('div', { 'class': 'dd-adv-body' }, [
-					E('div', { 'class': 'dd-geo-row' }, [ E('label', {}, _('Repository')), repoInput ]),
-					E('div', { 'class': 'dd-geo-actions' }, [ saveBtn ])
-				])
-			]);
-			adv.firstChild.addEventListener('click', function() {
-				adv.classList.toggle('dd-closed');
-			});
-			return adv;
-		})();
-
 		// === GitHub proxy, shown right in the Package Updates card ===
 		// The probe hits api.github.com, which many networks block; without a
 		// visible way to set the proxy the rows silently claim "up to date".
@@ -805,8 +760,7 @@ return view.extend({
 					checkSrc
 				]),
 				proxySettings,
-				pkgBody,
-				feedSettings
+				pkgBody
 			]),
 			E('div', { 'class': 'dd-card' }, [
 				E('h4', { 'class': 'dd-card-title' }, _('Config Backup')),

@@ -1195,17 +1195,8 @@ msgstr "发布版本"
 msgid "from GitHub release"
 msgstr "来自 GitHub 发布"
 
-msgid "Release Feed"
-msgstr "更新源"
-
-msgid "Repository"
-msgstr "仓库"
-
 msgid "GitHub Proxy"
 msgstr "GitHub 代理"
-
-msgid "Release feed saved."
-msgstr "更新源已保存。"
 
 msgid "GitHub Proxy saved."
 msgstr "GitHub 代理已保存。"
@@ -1484,3 +1475,45 @@ msgstr "查询中..."
 
 msgid "Timeout"
 msgstr "超时"
+
+msgid "Initialize Account & Password"
+msgstr "初始化账号密码"
+
+msgid "Change Account & Password"
+msgstr "修改账号密码"
+
+msgid "After initialization: username %s, password %s (shown in plain text)"
+msgstr "初始化后账号：%s，密码：%s（明文显示）"
+
+msgid "Verify Current Account"
+msgstr "验证当前账号"
+
+msgid "Sign in"
+msgstr "登录"
+
+msgid "Current Username"
+msgstr "当前用户名"
+
+msgid "Current Password"
+msgstr "当前密码"
+
+msgid "New Username"
+msgstr "新用户名"
+
+msgid "New Password"
+msgstr "新密码"
+
+msgid "Account initialized: %s / %s (plain text)"
+msgstr "账号已初始化：%s / %s（明文）"
+
+msgid "Account updated: %s / %s (plain text)"
+msgstr "账号已修改：%s / %s（明文）"
+
+msgid "daed is not initialized yet. Use Initialize Account & Password first."
+msgstr "daed 尚未初始化，请先点击「初始化账号密码」。"
+
+msgid "Account operation failed: %s"
+msgstr "账号操作失败：%s"
+
+msgid "Log Settings"
+msgstr "日志设置"

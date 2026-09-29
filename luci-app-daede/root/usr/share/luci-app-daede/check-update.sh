@@ -6,9 +6,8 @@
 #
 # Why a separate script instead of pkg-info.sh: pkg-info.sh compares against
 # the device's apk/opkg feed (the R2 mirror). That feed only ever carries
-# upstream builds. A fork that pushes its own tags publishes packages as
-# release assets on GitHub instead, so we need a second lookup path that can
-# be pointed at an arbitrary repo via uci daede.config.update_repo.
+# upstream builds. This project publishes its own packages as GitHub release
+# assets instead, so this script checks the fixed zjfjm/openwrt-daede feed.
 
 PKG="$1"
 case "$PKG" in
@@ -48,11 +47,10 @@ if [ "$2" != "--real" ]; then
 	exit "$rc"
 fi
 
-# GitHub repo hosting release assets for this build. Defaults to this fork so
-# the button pulls our own builds; set daede.config.update_repo to point it at
-# another fork ("user/repo") if needed.
-UPDATE_REPO="$(uci -q get daede.config.update_repo)"
-[ -n "$UPDATE_REPO" ] || UPDATE_REPO="zjfjm/openwrt-daede"
+# GitHub repo hosting release assets for this build. Fixed to this project's
+# own repository — this is a self-built fork, the Updates page does not offer
+# switching the release feed.
+UPDATE_REPO="zjfjm/openwrt-daede"
 
 # Optional prefix for github.com (e.g. https://ghfast.top/) when the device
 # cannot reach GitHub directly. Applied to api.github.com too, but only as a

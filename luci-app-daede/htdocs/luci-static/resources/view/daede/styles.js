@@ -149,6 +149,8 @@ const CSS = [
 	'.dd-editor-status.show{opacity:1}',
 	'.dd-editor-status.ok{color:#3da66a}',
 	'.dd-editor-status.err{color:#d96d6d}',
+	'.dd-acct-box{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:4px 0 14px;padding:10px 12px;border:1px dashed rgba(130,150,180,.5);border-radius:8px}',
+	'.dd-acct-note{flex-basis:100%;font-size:12px;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;opacity:.85}',
 	'.dd-editor-hint{font-size:11.5px;opacity:.62;line-height:1.5;margin:0 0 8px;padding:7px 10px;border-radius:6px;background:rgba(56,134,161,.06)}',
 	'.dd-editor-hint b{font-weight:600;opacity:.85}',
 		'.dd-sub-card{margin:0 0 10px;padding:10px 14px;border:0;border-radius:8px;background:transparent}',

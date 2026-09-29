@@ -1,10 +1,6 @@
 config daede 'config'
 	option active_backend 'daed'
 
-	# GitHub repo ("user/repo") hosting release assets used by the Updates
-	# page. Point this at your fork to pull your builds.
-	option update_repo 'zjfjm/openwrt-daede'
-
 	# Optional proxy prefix for github.com (e.g. https://ghfast.top/).
 	option github_proxy 'https://ghfast.top/'
 

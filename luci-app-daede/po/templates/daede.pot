@@ -916,16 +916,7 @@ msgstr ""
 msgid "from GitHub release"
 msgstr ""
 
-msgid "Release Feed"
-msgstr ""
-
-msgid "Repository"
-msgstr ""
-
 msgid "GitHub Proxy"
-msgstr ""
-
-msgid "Release feed saved."
 msgstr ""
 
 msgid "GitHub Proxy saved."
@@ -1257,4 +1248,46 @@ msgid "Querying..."
 msgstr ""
 
 msgid "Timeout"
+msgstr ""
+
+msgid "Initialize Account & Password"
+msgstr ""
+
+msgid "Change Account & Password"
+msgstr ""
+
+msgid "After initialization: username %s, password %s (shown in plain text)"
+msgstr ""
+
+msgid "Verify Current Account"
+msgstr ""
+
+msgid "Sign in"
+msgstr ""
+
+msgid "Current Username"
+msgstr ""
+
+msgid "Current Password"
+msgstr ""
+
+msgid "New Username"
+msgstr ""
+
+msgid "New Password"
+msgstr ""
+
+msgid "Account initialized: %s / %s (plain text)"
+msgstr ""
+
+msgid "Account updated: %s / %s (plain text)"
+msgstr ""
+
+msgid "daed is not initialized yet. Use Initialize Account & Password first."
+msgstr ""
+
+msgid "Account operation failed: %s"
+msgstr ""
+
+msgid "Log Settings"
 msgstr ""
