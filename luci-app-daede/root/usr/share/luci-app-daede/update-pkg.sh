@@ -110,10 +110,18 @@ fi
 		if [ -n "$asset_url" ]; then
 			GH_PROXY="$(uci -q get daede.config.github_proxy)"
 			[ -n "$GH_PROXY" ] || GH_PROXY="https://ghfast.top/"
-			dl_url="$asset_url"
-			case "$dl_url" in
+			# Same candidate chain as upgrade-asset.sh: configured proxy,
+			# direct, default mirror — a dead proxy must not fail the install.
+			try_list="$asset_url"
+			case "$asset_url" in
 				https://github.com/*)
-					[ -n "$GH_PROXY" ] && dl_url="${GH_PROXY}${dl_url}"
+					try_list=""
+					[ -n "$GH_PROXY" ] && try_list="${GH_PROXY}${asset_url}"
+					try_list="${try_list} ${asset_url}"
+					case "$GH_PROXY" in
+						https://ghfast.top/) ;;
+						*) try_list="${try_list} https://ghfast.top/${asset_url}" ;;
+					esac
 					;;
 			esac
 			if command -v apk >/dev/null 2>&1; then
@@ -125,15 +133,28 @@ fi
 			rm -rf "$tmp_dir"
 			mkdir -p "$tmp_dir"
 			file="$tmp_dir/${PKG}.${ext}"
-			echo "downloading $dl_url ..."
-			if command -v curl >/dev/null 2>&1; then
-				curl -fL --max-time 300 "$dl_url" -o "$file" 2>&1
-			elif command -v uclient-fetch >/dev/null 2>&1; then
-				uclient-fetch -O "$file" --timeout=300 "$dl_url" 2>&1
-			else
-				wget -qO "$file" --timeout=300 "$dl_url" 2>&1
-			fi
-			rc=$?
+			rc=1
+			set -f
+			for u in $try_list; do
+				echo "downloading $u ..."
+				if command -v curl >/dev/null 2>&1; then
+					curl -fsSL --connect-timeout 15 --max-time 180 "$u" -o "$file" 2>&1
+					rc=$?
+				elif command -v uclient-fetch >/dev/null 2>&1; then
+					uclient-fetch -q -O "$file" --timeout=60 "$u" 2>&1
+					rc=$?
+				else
+					wget -qO "$file" --timeout=60 "$u" 2>&1
+					rc=$?
+				fi
+				if [ "$rc" = 0 ] && [ -s "$file" ]; then
+					echo "downloaded from $u"
+					break
+				fi
+				echo "source failed (rc=$rc), trying next"
+				rm -f "$file"
+			done
+			set +f
 			if [ "$rc" = 0 ] && [ -s "$file" ]; then
 				if command -v apk >/dev/null 2>&1; then
 					echo "--- apk add --allow-untrusted $file ---"

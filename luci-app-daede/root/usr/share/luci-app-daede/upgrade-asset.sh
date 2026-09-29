@@ -49,10 +49,20 @@ fi
 	echo "$(date '+%F %T') begin asset install: $PKG"
 	echo "asset: $URL"
 
-	dl_url="$URL"
+	# Candidate sources, tried in order: the configured proxy first (dead
+	# proxies fail fast thanks to --connect-timeout), then direct, then the
+	# default mirror. Never depend on a single prefix — a dead configured
+	# proxy used to hang for minutes and fail the whole install.
+	try_list="$URL"
 	case "$URL" in
 		https://github.com/*)
-			[ -n "$GH_PROXY" ] && dl_url="${GH_PROXY}${URL}"
+			try_list=""
+			[ -n "$GH_PROXY" ] && try_list="${GH_PROXY}${URL}"
+			try_list="${try_list} ${URL}"
+			case "$GH_PROXY" in
+				https://ghfast.top/) ;;
+				*) try_list="${try_list} https://ghfast.top/${URL}" ;;
+			esac
 			;;
 	esac
 
@@ -66,15 +76,28 @@ fi
 	fi
 	file="$tmp_dir/${PKG}.${ext}"
 
-	echo "downloading ${dl_url} ..."
-	if command -v curl >/dev/null 2>&1; then
-		curl -fL --max-time 300 "$dl_url" -o "$file" 2>&1
-	elif command -v uclient-fetch >/dev/null 2>&1; then
-		uclient-fetch -O "$file" --timeout=300 "$dl_url" 2>&1
-	else
-		wget -qO "$file" --timeout=300 "$dl_url" 2>&1
-	fi
-	rc=$?
+	rc=1
+	set -f
+	for u in $try_list; do
+		echo "downloading ${u} ..."
+		if command -v curl >/dev/null 2>&1; then
+			curl -fsSL --connect-timeout 15 --max-time 180 "$u" -o "$file" 2>&1
+			rc=$?
+		elif command -v uclient-fetch >/dev/null 2>&1; then
+			uclient-fetch -q -O "$file" --timeout=60 "$u" 2>&1
+			rc=$?
+		else
+			wget -qO "$file" --timeout=60 "$u" 2>&1
+			rc=$?
+		fi
+		if [ "$rc" = 0 ] && [ -s "$file" ]; then
+			echo "downloaded from ${u}"
+			break
+		fi
+		echo "source failed (rc=$rc), trying next"
+		rm -f "$file"
+	done
+	set +f
 
 	if [ "$rc" != 0 ] || [ ! -s "$file" ]; then
 		echo "result: download failed (rc=$rc)"

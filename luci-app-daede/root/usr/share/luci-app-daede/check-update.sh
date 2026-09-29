@@ -166,6 +166,23 @@ case "$api" in
 	   ;;
 esac
 
+# Configured mirror also failed: try the default mirror once, so a dead
+# user-configured proxy cannot be the only fallback.
+case "$api" in
+	*browser_download_url*) ;;
+	*)
+		case "$GH_PROXY" in
+			https://ghfast.top/) ;;
+			*)
+				proxied="$(fetch_text "https://ghfast.top/${api_url}")"
+				case "$proxied" in
+					*browser_download_url*) api="$proxied" ;;
+				esac
+				;;
+		esac
+		;;
+esac
+
 # Classify the failure: rate limiting is not a proxy problem, so it gets
 # its own exit code (2) and UI message instead of "set the GitHub Proxy
 # and retry" — a proxy cannot lift an IP-level limit here.

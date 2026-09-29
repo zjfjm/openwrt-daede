@@ -216,7 +216,12 @@ return view.extend({
 			let tries = 0;
 			const poll = function() {
 				return L.resolveDefault(fs.read_direct(logPath, 'text'), '').then(function(c) {
-					if (c) { logPane.textContent = c; logPane.classList.add('show'); }
+					/* curl progress meters embed \r; raw \r in a <pre> overlaps
+					   columns into an unreadable mess — split them into lines */
+					if (c) {
+						logPane.textContent = c.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+						logPane.classList.add('show');
+					}
 					if (/[✓✗]/.test(c)) { refresh(); return; }
 					if (tries++ > 90) return;
 					return new Promise(function(r) { setTimeout(r, 2000); }).then(poll);
