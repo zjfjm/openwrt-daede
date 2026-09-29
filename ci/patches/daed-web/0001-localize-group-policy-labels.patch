@@ -1,0 +1,73 @@
+diff --git a/apps/web/src/components/GroupFormModal.tsx b/apps/web/src/components/GroupFormModal.tsx
+index 2d013b6..e1e229b 100644
+--- a/apps/web/src/components/GroupFormModal.tsx
++++ b/apps/web/src/components/GroupFormModal.tsx
+@@ -98,27 +98,27 @@ export function GroupFormModal({
+ 
+   const policyData = [
+     {
+-      label: Policy.MinMovingAvg,
++      label: t('policyNames.MinMovingAvg'),
+       value: Policy.MinMovingAvg,
+       description: t('descriptions.group.MinMovingAvg'),
+     },
+     {
+-      label: Policy.MinAvg10,
++      label: t('policyNames.MinAvg10'),
+       value: Policy.MinAvg10,
+       description: t('descriptions.group.MinAvg10'),
+     },
+     {
+-      label: Policy.Min,
++      label: t('policyNames.Min'),
+       value: Policy.Min,
+       description: t('descriptions.group.Min'),
+     },
+     {
+-      label: Policy.Random,
++      label: t('policyNames.Random'),
+       value: Policy.Random,
+       description: t('descriptions.group.Random'),
+     },
+     {
+-      label: Policy.Fixed,
++      label: t('policyNames.Fixed'),
+       value: Policy.Fixed,
+       description: t('descriptions.group.Fixed'),
+     },
+diff --git a/apps/web/src/i18n/locales/en.json b/apps/web/src/i18n/locales/en.json
+index 8b16172..caac43f 100644
+--- a/apps/web/src/i18n/locales/en.json
++++ b/apps/web/src/i18n/locales/en.json
+@@ -301,6 +301,13 @@
+   "password.update": "Update Password",
+   "please select a config first": "Please select a config first",
+   "policy": "Policy",
++  "policyNames": {
++    "MinMovingAvg": "Min moving average latency",
++    "MinAvg10": "Min average of last 10",
++    "Min": "Min last latency",
++    "Random": "Random",
++    "Fixed": "Fixed (first node)"
++  },
+   "policyParams": "Policy Parameters",
+   "protocol": "Protocol",
+   "resource": "Resource",
+diff --git a/apps/web/src/i18n/locales/zh-Hans.json b/apps/web/src/i18n/locales/zh-Hans.json
+index 7820ecc..1552483 100644
+--- a/apps/web/src/i18n/locales/zh-Hans.json
++++ b/apps/web/src/i18n/locales/zh-Hans.json
+@@ -301,6 +301,13 @@
+   "password.update": "更新密码",
+   "please select a config first": "请先选择配置",
+   "policy": "策略",
++  "policyNames": {
++    "MinMovingAvg": "最小移动平均延迟",
++    "MinAvg10": "最近 10 次最小值",
++    "Min": "最小末延迟",
++    "Random": "随机",
++    "Fixed": "固定（第一个节点）"
++  },
+   "policyParams": "策略参数",
+   "protocol": "协议",
+   "resource": "资源",

@@ -6,6 +6,9 @@ name: Assemble daed source
 
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - 'ci/patches/daed-web/**'
 
 concurrency:
   group: assemble-source
@@ -43,6 +46,11 @@ jobs:
           }
 
           fetch_at https://github.com/daeuniverse/daed "$OUT" "$DAED_COMMIT"
+          # daed web UI patches (localization), applied before the pnpm build so
+          # the change lands in the embedded dist. Empty dir is a no-op.
+          if ls "$GITHUB_WORKSPACE"/ci/patches/daed-web/*.patch >/dev/null 2>&1; then
+            git -C "$OUT" apply "$GITHUB_WORKSPACE"/ci/patches/daed-web/*.patch
+          fi
           rm -rf "$OUT/wing"
           fetch_at https://github.com/daeuniverse/dae-wing "$OUT/wing" "$WING_COMMIT"
           rm -rf "$OUT/wing/dae-core"
